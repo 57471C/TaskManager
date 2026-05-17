@@ -258,7 +258,17 @@ export default function TaskManager() {
       .eq("email", inviteEmail.trim().toLowerCase())
       .single();
 
-    if (searchError || !targetProfile) {
+    if (searchError) {
+      console.error("Search Error:", searchError);
+      if (searchError.code === "PGRST116") {
+        return alert(
+          "User not found. Ensure they have created an account first.",
+        );
+      }
+      return alert(`Error searching for user: ${searchError.message}`);
+    }
+
+    if (!targetProfile) {
       return alert(
         "User not found. Ensure they have created an account first.",
       );
