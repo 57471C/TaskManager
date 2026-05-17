@@ -1734,7 +1734,7 @@ export default function TaskManager() {
                             <button
                               type="button"
                               onClick={handleDeleteTeam}
-                              className="text-red-400/60 hover:text-red-400 transition-colors p-0.5"
+                              className="text-red-500 hover:text-red-400 transition-colors p-1 bg-red-500/10 rounded-md ml-1"
                               title="Delete Team"
                             >
                               <svg
