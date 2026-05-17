@@ -29,26 +29,13 @@ type Task = {
   user_id?: string;
 };
 
-interface ProfileSettings {
-  sound_enabled?: boolean;
-  [key: string]: unknown;
-}
-
 type Profile = {
   id: string;
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
-  settings: ProfileSettings;
+  settings: Record<string, unknown>;
 };
-
-const extensions = [
-  StarterKit,
-  Link.configure({
-    openOnClick: false,
-  }),
-  Highlight,
-];
 
 export default function TaskManager() {
   const [user, setUser] = useState<User | null>(null);
@@ -93,6 +80,17 @@ export default function TaskManager() {
   const [showEditTaskProjectMenu, setShowEditTaskProjectMenu] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
+
+  const extensions = useMemo(
+    () => [
+      StarterKit,
+      Link.configure({
+        openOnClick: false,
+      }),
+      Highlight,
+    ],
+    [],
+  );
 
   const editor = useEditor({
     extensions,
@@ -170,13 +168,6 @@ export default function TaskManager() {
       if (error) setAuthError(error.message);
     }
     setIsSubmitting(false);
-  };
-
-  const playSuccessSound = () => {
-    const soundEnabled = profile?.settings?.sound_enabled ?? true;
-    if (!soundEnabled) return;
-    const audio = new Audio("/complete.mp3");
-    audio.play().catch((err) => console.error("Audio play failed:", err));
   };
 
   const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -454,10 +445,6 @@ export default function TaskManager() {
   ) => {
     const newStatus = currentStatus === "done" ? "todo" : "done";
 
-    if (newStatus === "done") {
-      playSuccessSound();
-    }
-
     setTasks((prev) =>
       prev.map((task) =>
         task.id === taskId ? { ...task, status: newStatus } : task,
@@ -644,6 +631,39 @@ export default function TaskManager() {
 
       {/* Sidebar */}
       <div className="w-64 border-r border-[#1e2130] p-4 flex flex-col">
+        {/* User Profile Section (Moved to top) */}
+        <div
+          onClick={() => setShowProfileModal(true)}
+          className="mb-4 px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors border-b border-[#1e2130] pb-4"
+        >
+          {profile?.avatar_url ? (
+            <Image
+              src={profile.avatar_url}
+              alt="Avatar"
+              width={32}
+              height={32}
+              className="rounded-full object-cover border border-[#374151]"
+              unoptimized
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner flex-shrink-0">
+              {(
+                profile?.first_name?.[0] ||
+                user.email?.[0] ||
+                "U"
+              ).toUpperCase()}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">
+              {profile?.first_name
+                ? `${profile.first_name} ${profile.last_name || ""}`
+                : "User"}
+            </p>
+            <p className="text-[10px] text-[#6b7280] truncate">{user.email}</p>
+          </div>
+        </div>
+
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-white">Task Manager</h1>
           <p className="text-sm text-[#6b7280]">QHSE Team</p>
@@ -763,48 +783,6 @@ export default function TaskManager() {
                 </button>
               ))}
           </div>
-        </div>
-
-        {/* User Profile & Sign Out Section */}
-        <div className="mt-auto pt-4 border-t border-[#1e2130] space-y-1">
-          <div
-            onClick={() => setShowProfileModal(true)}
-            className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors"
-          >
-            {profile?.avatar_url ? (
-              <Image
-                src={profile.avatar_url}
-                alt="Avatar"
-                width={32}
-                height={32}
-                className="rounded-full object-cover border border-[#374151]"
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner">
-                {(
-                  profile?.first_name?.[0] ||
-                  user.email?.[0] ||
-                  "U"
-                ).toUpperCase()}
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">
-                {profile?.first_name
-                  ? `${profile.first_name} ${profile.last_name || ""}`
-                  : "User"}
-              </p>
-              <p className="text-[10px] text-[#6b7280] truncate">
-                {user.email}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-400/10 transition-colors"
-          >
-            Sign Out
-          </button>
         </div>
       </div>
 
@@ -1477,6 +1455,7 @@ export default function TaskManager() {
                       width={48}
                       height={48}
                       className="rounded-full object-cover border border-[#374151]"
+                      unoptimized
                     />
                   ) : (
                     <div className="w-12 h-12 rounded-full bg-[#3b82f6] flex items-center justify-center text-white font-bold">
@@ -1506,89 +1485,6 @@ export default function TaskManager() {
                 </div>
               </div>
 
-              <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
-                  Preferences
-                </label>
-                <div className="flex items-center justify-between p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
-                  <div className="flex items-center gap-3">
-                    <div className="text-[#6b7280]">
-                      {(profile?.settings?.sound_enabled ?? true) ? (
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
-                        </svg>
-                      ) : (
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="20"
-                          height="20"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                          <line x1="23" y1="9" x2="17" y2="15"></line>
-                          <line x1="17" y1="9" x2="23" y2="15"></line>
-                        </svg>
-                      )}
-                    </div>
-                    <span className="text-sm text-white">Completion Sound</span>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={async () => {
-                      if (!user || !profile) return;
-                      const currentSettings = profile.settings || {};
-                      const newValue = !(currentSettings.sound_enabled ?? true);
-
-                      const { data, error } = await supabase
-                        .from("profiles")
-                        .update({
-                          settings: {
-                            ...currentSettings,
-                            sound_enabled: newValue,
-                          },
-                        })
-                        .eq("id", user.id)
-                        .select()
-                        .single();
-
-                      if (!error && data) {
-                        setProfile(data);
-                      }
-                    }}
-                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                      (profile?.settings?.sound_enabled ?? true)
-                        ? "bg-[#3b82f6]"
-                        : "bg-[#374151]"
-                    }`}
-                  >
-                    <span
-                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
-                        (profile?.settings?.sound_enabled ?? true)
-                          ? "translate-x-6"
-                          : "translate-x-1"
-                      }`}
-                    />
-                  </button>
-                </div>
-              </div>
-
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
@@ -1602,6 +1498,16 @@ export default function TaskManager() {
                   className="flex-1 py-2.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg text-sm font-medium transition-colors"
                 >
                   Save Changes
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-[#374151]">
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="w-full py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors font-medium"
+                >
+                  Sign Out from Account
                 </button>
               </div>
             </form>
