@@ -83,6 +83,7 @@ export default function TaskManager() {
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
   const [newTaskTitle, setNewTaskTitle] = useState("");
+  const [shareWithTeam, setShareWithTeam] = useState(false);
   const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
     null,
   );
@@ -519,7 +520,7 @@ export default function TaskManager() {
           : null,
         tags: newTags,
         user_id: user.id,
-        parent_id: null,
+        team_id: shareWithTeam ? currentTeam?.id : null,
       })
       .select()
       .single();
@@ -531,6 +532,7 @@ export default function TaskManager() {
       setSelectedPriority(0);
       setSelectedDate(null);
       setNewTags([]);
+      setShareWithTeam(false);
       setSelectedProjectId(null);
       setTimeout(() => setEditingTask(data), 100);
     }
@@ -1300,6 +1302,37 @@ export default function TaskManager() {
                         ? projects.find((p) => p.id === selectedProjectId)?.name
                         : "Inbox"}
                     </span>
+
+                    {profile?.team_id && (
+                      <div className="flex items-center gap-2 ml-2 border-l border-[#374151] pl-3">
+                        <button
+                          onClick={() => setShareWithTeam(!shareWithTeam)}
+                          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-[10px] font-bold uppercase tracking-wider ${
+                            shareWithTeam
+                              ? "bg-[#3b82f6]/20 text-[#3b82f6] border border-[#3b82f6]/30"
+                              : "bg-[#374151] text-[#6b7280] border border-transparent hover:text-white"
+                          }`}
+                        >
+                          <svg
+                            xmlns="http://www.w3.org/2000/svg"
+                            width="12"
+                            height="12"
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            strokeWidth="3"
+                            strokeLinecap="round"
+                            strokeLinejoin="round"
+                          >
+                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
+                            <circle cx="9" cy="7" r="4"></circle>
+                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
+                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
+                          </svg>
+                          {shareWithTeam ? "Team" : "Private"}
+                        </button>
+                      </div>
+                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
