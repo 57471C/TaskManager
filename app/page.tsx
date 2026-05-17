@@ -28,15 +28,30 @@ type Task = {
   user_id?: string;
 };
 
+type Profile = {
+  id: string;
+  first_name: string | null;
+  last_name: string | null;
+  avatar_url: string | null;
+  settings: Record<string, any>;
+};
+
 export default function TaskManager() {
   const [user, setUser] = useState<User | null>(null);
   const [authLoading, setAuthLoading] = useState(true);
   const [authEmail, setAuthEmail] = useState("");
   const [authPassword, setAuthPassword] = useState("");
   const [isSignUp, setIsSignUp] = useState(false);
+  const [authFirstName, setAuthFirstName] = useState("");
+  const [authLastName, setAuthLastName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
+  const [profile, setProfile] = useState<Profile | null>(null);
+  const [showProfileModal, setShowProfileModal] = useState(false);
+  const [editProfileFirstName, setEditProfileFirstName] = useState("");
+  const [editProfileLastName, setEditProfileLastName] = useState("");
+  const [editProfileAvatarUrl, setEditProfileAvatarUrl] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -105,6 +120,14 @@ export default function TaskManager() {
     }
   }, [editingTask, editor]);
 
+  useEffect(() => {
+    if (profile) {
+      setEditProfileFirstName(profile.first_name || "");
+      setEditProfileLastName(profile.last_name || "");
+      setEditProfileAvatarUrl(profile.avatar_url || "");
+    }
+  }, [profile]);
+
   // Auth Listener and Initial Session
   useEffect(() => {
     const checkUser = async () => {
@@ -134,6 +157,12 @@ export default function TaskManager() {
       const { error } = await supabase.auth.signUp({
         email: authEmail,
         password: authPassword,
+        options: {
+          data: {
+            first_name: authFirstName,
+            last_name: authLastName,
+          },
+        },
       });
       if (error) setAuthError(error.message);
       else setAuthError("Success! Check your email for a confirmation link.");
@@ -145,6 +174,29 @@ export default function TaskManager() {
       if (error) setAuthError(error.message);
     }
     setIsSubmitting(false);
+  };
+
+  const handleUpdateProfile = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user) return;
+
+    const { data, error } = await supabase
+      .from("profiles")
+      .update({
+        first_name: editProfileFirstName,
+        last_name: editProfileLastName,
+        avatar_url: editProfileAvatarUrl,
+      })
+      .eq("id", user.id)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setProfile(data);
+      setShowProfileModal(false);
+    } else if (error) {
+      alert(error.message);
+    }
   };
 
   const handleSignOut = async () => {
@@ -173,6 +225,31 @@ export default function TaskManager() {
       setTasks(data || []);
     };
 
+    const fetchProfile = async () => {
+      const { data, error } = await supabase
+        .from("profiles")
+        .select("*")
+        .eq("id", user.id)
+        .single();
+
+      if (error && error.code === "PGRST116") {
+        // Profile doesn't exist yet, insert one manually if trigger isn't set up
+        const { data: newProfile } = await supabase
+          .from("profiles")
+          .insert({
+            id: user.id,
+            first_name: user.user_metadata?.first_name || null,
+            last_name: user.user_metadata?.last_name || null,
+          })
+          .select()
+          .single();
+        setProfile(newProfile);
+      } else {
+        setProfile(data);
+      }
+    };
+
+    fetchProfile();
     fetchProjects();
     fetchTasks();
   }, [user]);
@@ -378,6 +455,26 @@ export default function TaskManager() {
             </div>
           )}
           <form onSubmit={handleAuth} className="space-y-4">
+            {isSignUp && (
+              <div className="grid grid-cols-2 gap-4">
+                <input
+                  type="text"
+                  placeholder="First Name"
+                  value={authFirstName}
+                  onChange={(e) => setAuthFirstName(e.target.value)}
+                  className="bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 text-white focus:border-[#3b82f6] outline-none text-sm"
+                  required
+                />
+                <input
+                  type="text"
+                  placeholder="Last Name"
+                  value={authLastName}
+                  onChange={(e) => setAuthLastName(e.target.value)}
+                  className="bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 text-white focus:border-[#3b82f6] outline-none text-sm"
+                  required
+                />
+              </div>
+            )}
             <input
               type="email"
               placeholder="Email"
@@ -597,14 +694,41 @@ export default function TaskManager() {
           </div>
         </div>
 
-        {/* Sign Out Section */}
-        <div className="mt-auto pt-4 border-t border-[#1e2130]">
-          <div className="px-3 py-2 text-xs text-[#6b7280] truncate mb-2">
-            {user.email}
+        {/* User Profile & Sign Out Section */}
+        <div className="mt-auto pt-4 border-t border-[#1e2130] space-y-1">
+          <div
+            onClick={() => setShowProfileModal(true)}
+            className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors"
+          >
+            {profile?.avatar_url ? (
+              <img
+                src={profile.avatar_url}
+                alt="Avatar"
+                className="w-8 h-8 rounded-full object-cover border border-[#374151]"
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner">
+                {(
+                  profile?.first_name?.[0] ||
+                  user.email?.[0] ||
+                  "U"
+                ).toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {profile?.first_name
+                  ? `${profile.first_name} ${profile.last_name || ""}`
+                  : "User"}
+              </p>
+              <p className="text-[10px] text-[#6b7280] truncate">
+                {user.email}
+              </p>
+            </div>
           </div>
           <button
             onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-[#1e2130] transition-colors"
+            className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-400/10 transition-colors"
           >
             Sign Out
           </button>
@@ -1223,6 +1347,83 @@ export default function TaskManager() {
           </div>
         </div>
       </div>
+
+      {/* User Profile Edit Modal */}
+      {showProfileModal && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center p-4">
+          <div
+            className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowProfileModal(false)}
+          />
+          <div className="relative bg-[#1e2130] border border-[#374151] rounded-xl shadow-2xl w-full max-w-md overflow-hidden animate-in fade-in zoom-in duration-200">
+            <div className="p-6 border-b border-[#374151] flex justify-between items-center bg-[#1e2130]">
+              <h2 className="text-lg font-semibold text-white">Edit Profile</h2>
+              <button
+                onClick={() => setShowProfileModal(false)}
+                className="text-[#6b7280] hover:text-white transition-colors"
+              >
+                ✕
+              </button>
+            </div>
+
+            <form onSubmit={handleUpdateProfile} className="p-6 space-y-5">
+              <div className="grid grid-cols-2 gap-4">
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
+                    First Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editProfileFirstName}
+                    onChange={(e) => setEditProfileFirstName(e.target.value)}
+                    className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
+                    Last Name
+                  </label>
+                  <input
+                    type="text"
+                    value={editProfileLastName}
+                    onChange={(e) => setEditProfileLastName(e.target.value)}
+                    className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
+                  Avatar URL
+                </label>
+                <input
+                  type="text"
+                  placeholder="https://..."
+                  value={editProfileAvatarUrl}
+                  onChange={(e) => setEditProfileAvatarUrl(e.target.value)}
+                  className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
+                />
+              </div>
+
+              <div className="pt-2 flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => setShowProfileModal(false)}
+                  className="flex-1 py-2.5 rounded-lg border border-[#374151] hover:bg-[#374151] text-white text-sm font-medium transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  className="flex-1 py-2.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  Save Changes
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
 
       {/* Edit Task Panel */}
       {editingTask && (
