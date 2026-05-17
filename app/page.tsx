@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
+import { useEffect, useState, useMemo } from "react";
 import { supabase } from "@/lib/supabase";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Highlight from "@tiptap/extension-highlight";
 import { User } from "@supabase/supabase-js";
+import Image from "next/image";
 
 type Project = {
   id: string;
@@ -33,8 +34,16 @@ type Profile = {
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
-  settings: Record<string, any>;
+  settings: Record<string, unknown>;
 };
+
+const extensions = [
+  StarterKit,
+  Link.configure({
+    openOnClick: false,
+  }),
+  Highlight,
+];
 
 export default function TaskManager() {
   const [user, setUser] = useState<User | null>(null);
@@ -52,6 +61,7 @@ export default function TaskManager() {
   const [editProfileFirstName, setEditProfileFirstName] = useState("");
   const [editProfileLastName, setEditProfileLastName] = useState("");
   const [editProfileAvatarUrl, setEditProfileAvatarUrl] = useState("");
+  const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -78,17 +88,6 @@ export default function TaskManager() {
   const [showEditTaskProjectMenu, setShowEditTaskProjectMenu] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
-
-  const extensions = useMemo(
-    () => [
-      StarterKit,
-      Link.configure({
-        openOnClick: false,
-      }),
-      Highlight,
-    ],
-    [],
-  );
 
   const editor = useEditor({
     extensions,
@@ -119,14 +118,6 @@ export default function TaskManager() {
       });
     }
   }, [editingTask, editor]);
-
-  useEffect(() => {
-    if (profile) {
-      setEditProfileFirstName(profile.first_name || "");
-      setEditProfileLastName(profile.last_name || "");
-      setEditProfileAvatarUrl(profile.avatar_url || "");
-    }
-  }, [profile]);
 
   // Auth Listener and Initial Session
   useEffect(() => {
@@ -176,6 +167,60 @@ export default function TaskManager() {
     setIsSubmitting(false);
   };
 
+  const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
+    try {
+      setIsUploadingAvatar(true);
+      if (!event.target.files || event.target.files.length === 0 || !user) {
+        throw new Error("You must select an image to upload.");
+      }
+
+      const file = event.target.files[0];
+      const fileExt = file.name.split(".").pop();
+      const filePath = `${user.id}/avatar.${fileExt}`;
+
+      // Upload the file to the 'avatars' bucket
+      const { error: uploadError } = await supabase.storage
+        .from("avatars")
+        .upload(filePath, file, { upsert: true });
+
+      if (uploadError) throw uploadError;
+
+      // Get the public URL
+      const {
+        data: { publicUrl },
+      } = supabase.storage.from("avatars").getPublicUrl(filePath);
+
+      // Append a timestamp to bypass browser caching
+      const cacheBustedUrl = `${publicUrl}?t=${Date.now()}`;
+      setEditProfileAvatarUrl(cacheBustedUrl);
+
+      // Auto-save the profile with the new URL immediately
+      const { data: updatedProfile, error: dbError } = await supabase
+        .from("profiles")
+        .update({
+          avatar_url: cacheBustedUrl,
+          // Persist current field values in case they were edited before upload
+          first_name: editProfileFirstName,
+          last_name: editProfileLastName,
+        })
+        .eq("id", user.id)
+        .select()
+        .single();
+
+      if (dbError) throw dbError;
+      if (updatedProfile) {
+        setProfile(updatedProfile);
+        setEditProfileAvatarUrl(updatedProfile.avatar_url || "");
+      }
+    } catch (error: unknown) {
+      const message =
+        error instanceof Error ? error.message : "An unknown error occurred";
+      alert(message);
+    } finally {
+      setIsUploadingAvatar(false);
+    }
+  };
+
   const handleUpdateProfile = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!user) return;
@@ -195,7 +240,9 @@ export default function TaskManager() {
       setProfile(data);
       setShowProfileModal(false);
     } else if (error) {
-      alert(error.message);
+      const message =
+        error instanceof Error ? error.message : "An unknown error occurred";
+      alert(message);
     }
   };
 
@@ -232,9 +279,10 @@ export default function TaskManager() {
         .eq("id", user.id)
         .single();
 
+      let profileData = data;
       if (error && error.code === "PGRST116") {
         // Profile doesn't exist yet, insert one manually if trigger isn't set up
-        const { data: newProfile } = await supabase
+        const { data: newProfile, error: insertError } = await supabase
           .from("profiles")
           .insert({
             id: user.id,
@@ -243,9 +291,16 @@ export default function TaskManager() {
           })
           .select()
           .single();
-        setProfile(newProfile);
-      } else {
-        setProfile(data);
+
+        if (!insertError) profileData = newProfile;
+      }
+
+      if (profileData) {
+        setProfile(profileData);
+        // Initialize edit states immediately upon fetch
+        setEditProfileFirstName(profileData.first_name || "");
+        setEditProfileLastName(profileData.last_name || "");
+        setEditProfileAvatarUrl(profileData.avatar_url || "");
       }
     };
 
@@ -701,10 +756,12 @@ export default function TaskManager() {
             className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors"
           >
             {profile?.avatar_url ? (
-              <img
+              <Image
                 src={profile.avatar_url}
                 alt="Avatar"
-                className="w-8 h-8 rounded-full object-cover border border-[#374151]"
+                width={32}
+                height={32}
+                className="rounded-full object-cover border border-[#374151]"
               />
             ) : (
               <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner">
@@ -1393,16 +1450,44 @@ export default function TaskManager() {
               </div>
 
               <div className="space-y-1.5">
-                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider">
-                  Avatar URL
+                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
+                  Avatar
                 </label>
-                <input
-                  type="text"
-                  placeholder="https://..."
-                  value={editProfileAvatarUrl}
-                  onChange={(e) => setEditProfileAvatarUrl(e.target.value)}
-                  className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
-                />
+                <div className="flex items-center gap-4">
+                  {editProfileAvatarUrl ? (
+                    <Image
+                      src={editProfileAvatarUrl}
+                      alt="Preview"
+                      width={48}
+                      height={48}
+                      className="rounded-full object-cover border border-[#374151]"
+                    />
+                  ) : (
+                    <div className="w-12 h-12 rounded-full bg-[#3b82f6] flex items-center justify-center text-white font-bold">
+                      {(
+                        editProfileFirstName?.[0] ||
+                        user.email?.[0] ||
+                        "U"
+                      ).toUpperCase()}
+                    </div>
+                  )}
+                  <div className="flex-1">
+                    <input
+                      type="file"
+                      id="avatar-upload"
+                      accept="image/png, image/jpeg"
+                      onChange={uploadAvatar}
+                      disabled={isUploadingAvatar}
+                      className="hidden"
+                    />
+                    <label
+                      htmlFor="avatar-upload"
+                      className="inline-block px-4 py-2 bg-[#0f1117] border border-[#374151] rounded-lg text-xs font-medium text-white cursor-pointer hover:bg-[#374151] transition-colors"
+                    >
+                      {isUploadingAvatar ? "Uploading..." : "Upload PNG/JPG"}
+                    </label>
+                  </div>
+                </div>
               </div>
 
               <div className="pt-2 flex gap-3">
