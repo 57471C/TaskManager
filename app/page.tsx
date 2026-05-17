@@ -1,16 +1,18 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
 import Link from "@tiptap/extension-link";
 import Highlight from "@tiptap/extension-highlight";
+import { User } from "@supabase/supabase-js";
 
 type Project = {
   id: string;
   name: string;
   colour: string;
+  user_id?: string;
 };
 
 type Task = {
@@ -23,9 +25,18 @@ type Task = {
   project_id: string | null;
   content: string | null;
   is_deleted?: boolean;
+  user_id?: string;
 };
 
 export default function TaskManager() {
+  const [user, setUser] = useState<User | null>(null);
+  const [authLoading, setAuthLoading] = useState(true);
+  const [authEmail, setAuthEmail] = useState("");
+  const [authPassword, setAuthPassword] = useState("");
+  const [isSignUp, setIsSignUp] = useState(false);
+  const [authError, setAuthError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -94,29 +105,77 @@ export default function TaskManager() {
     }
   }, [editingTask, editor]);
 
-  // Fetch projects
+  // Auth Listener and Initial Session
   useEffect(() => {
+    const checkUser = async () => {
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      setUser(session?.user ?? null);
+      setAuthLoading(false);
+    };
+    checkUser();
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      setUser(session?.user ?? null);
+    });
+
+    return () => subscription.unsubscribe();
+  }, []);
+
+  const handleAuth = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setAuthError(null);
+    setIsSubmitting(true);
+
+    if (isSignUp) {
+      const { error } = await supabase.auth.signUp({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) setAuthError(error.message);
+      else setAuthError("Success! Check your email for a confirmation link.");
+    } else {
+      const { error } = await supabase.auth.signInWithPassword({
+        email: authEmail,
+        password: authPassword,
+      });
+      if (error) setAuthError(error.message);
+    }
+    setIsSubmitting(false);
+  };
+
+  const handleSignOut = async () => {
+    await supabase.auth.signOut();
+  };
+
+  // Fetch data only when user is present
+  useEffect(() => {
+    if (!user) return;
+
     const fetchProjects = async () => {
       const { data } = await supabase
         .from("projects")
         .select("*")
+        .eq("user_id", user.id)
         .order("name");
       setProjects(data || []);
     };
-    fetchProjects();
-  }, []);
 
-  // Fetch tasks
-  useEffect(() => {
     const fetchTasks = async () => {
       const { data } = await supabase
         .from("tasks")
         .select("*")
+        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       setTasks(data || []);
     };
+
+    fetchProjects();
     fetchTasks();
-  }, []);
+  }, [user]);
 
   const projectTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {};
@@ -129,10 +188,14 @@ export default function TaskManager() {
   }, [tasks]);
 
   const handleAddProject = async () => {
-    if (!projectInput.trim()) return;
+    if (!projectInput.trim() || !user) return;
     const { data, error } = await supabase
       .from("projects")
-      .insert({ name: projectInput.trim(), colour: "#3b82f6" })
+      .insert({
+        name: projectInput.trim(),
+        colour: "#3b82f6",
+        user_id: user.id,
+      })
       .select()
       .single();
 
@@ -211,7 +274,7 @@ export default function TaskManager() {
   }, [tasks, selectedList, projects]);
 
   const handleQuickAdd = async () => {
-    if (!newTaskTitle.trim()) return;
+    if (!newTaskTitle.trim() || !user) return;
 
     const { data, error } = await supabase
       .from("tasks")
@@ -224,6 +287,7 @@ export default function TaskManager() {
           ? selectedDate.toISOString().split("T")[0]
           : null,
         tags: newTags,
+        user_id: user.id,
       })
       .select()
       .single();
@@ -291,6 +355,69 @@ export default function TaskManager() {
   };
 
   const smartLists = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
+
+  if (authLoading)
+    return (
+      <div className="h-screen bg-[#0f1117] flex items-center justify-center text-white">
+        Loading...
+      </div>
+    );
+
+  if (!user) {
+    return (
+      <div className="h-screen bg-[#0f1117] flex items-center justify-center p-4">
+        <div className="w-full max-w-md bg-[#1e2130] border border-[#374151] rounded-xl p-8 shadow-2xl">
+          <h1 className="text-2xl font-bold text-white mb-6 text-center">
+            {isSignUp ? "Create Account" : "Welcome Back"}
+          </h1>
+          {authError && (
+            <div
+              className={`mb-4 p-3 rounded-lg text-sm ${authError.includes("Success") ? "bg-green-500/10 text-green-400" : "bg-red-500/10 text-red-400"}`}
+            >
+              {authError}
+            </div>
+          )}
+          <form onSubmit={handleAuth} className="space-y-4">
+            <input
+              type="email"
+              placeholder="Email"
+              value={authEmail}
+              onChange={(e) => setAuthEmail(e.target.value)}
+              className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 text-white focus:border-[#3b82f6] outline-none"
+              required
+            />
+            <input
+              type="password"
+              placeholder="Password"
+              value={authPassword}
+              onChange={(e) => setAuthPassword(e.target.value)}
+              className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 text-white focus:border-[#3b82f6] outline-none"
+              required
+            />
+            <button
+              type="submit"
+              disabled={isSubmitting}
+              className="w-full bg-[#3b82f6] hover:bg-[#2563eb] text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
+            >
+              {isSubmitting
+                ? "Processing..."
+                : isSignUp
+                  ? "Sign Up"
+                  : "Sign In"}
+            </button>
+          </form>
+          <button
+            onClick={() => setIsSignUp(!isSignUp)}
+            className="w-full mt-6 text-sm text-[#6b7280] hover:text-white transition-colors"
+          >
+            {isSignUp
+              ? "Already have an account? Sign In"
+              : "Don't have an account? Sign Up"}
+          </button>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="flex h-screen bg-[#0f1117] text-[#d1d5db]">
@@ -468,6 +595,19 @@ export default function TaskManager() {
                 </button>
               ))}
           </div>
+        </div>
+
+        {/* Sign Out Section */}
+        <div className="mt-auto pt-4 border-t border-[#1e2130]">
+          <div className="px-3 py-2 text-xs text-[#6b7280] truncate mb-2">
+            {user.email}
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="w-full text-left px-3 py-2 rounded-lg text-sm text-red-400 hover:bg-[#1e2130] transition-colors"
+          >
+            Sign Out
+          </button>
         </div>
       </div>
 
