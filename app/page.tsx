@@ -94,7 +94,7 @@ export default function TaskManager() {
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [showMenuForTask, setShowMenuForTask] = useState<string | null>(null);
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
-  const [editPanelWidth, setEditPanelWidth] = useState(448);
+  const [editPanelWidth, setEditPanelWidth] = useState(468);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
   const [selectedDate, setSelectedDate] = useState<Date | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
