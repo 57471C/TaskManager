@@ -85,10 +85,10 @@ export default function TaskManager() {
   const [inviteEmail, setInviteEmail] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
-  const [selectedList, setSelectedList] = useState("Inbox");
+  const [selectedList, setSelectedList] = useState<string>("Inbox");
   const [newTaskTitle, setNewTaskTitle] = useState("");
-  const [shareWithTeam, setShareWithTeam] = useState(false);
-  const [selectedProjectId, setSelectedProjectId] = useState<string | null>(
+  // Keep track of the manually selected project for Quick Add overrides
+  const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(
     null,
   );
   const [selectedPriority, setSelectedPriority] = useState(0);
@@ -111,6 +111,7 @@ export default function TaskManager() {
   const [showEditTaskProjectMenu, setShowEditTaskProjectMenu] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
+  const [shareProjectWithTeam, setShareProjectWithTeam] = useState(false);
 
   const editor = useEditor({
     extensions,
@@ -437,12 +438,23 @@ export default function TaskManager() {
     if (!user) return;
 
     const fetchProjects = async () => {
+      if (!user) return;
+
+      // Get profile to know current team
+      const { data: profileData } = await supabase
+        .from("profiles")
+        .select("team_id")
+        .eq("id", user.id)
+        .single();
+
       const { data } = await supabase
         .from("projects")
         .select("*")
-        // Removing .eq("user_id") because RLS now handles
-        // showing both Personal and Team projects
+        .or(
+          `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
+        )
         .order("name");
+
       setProjects(data || []);
     };
 
@@ -450,6 +462,7 @@ export default function TaskManager() {
       const { data } = await supabase
         .from("tasks")
         .select("*")
+        .or("is_deleted.is.null,is_deleted.eq.false")
         .order("created_at", { ascending: false });
       setTasks(data || []);
     };
@@ -524,6 +537,7 @@ export default function TaskManager() {
         name: projectInput.trim(),
         colour: "#3b82f6",
         user_id: user.id,
+        team_id: shareProjectWithTeam ? currentTeam?.id : null,
       })
       .select()
       .single();
@@ -539,18 +553,35 @@ export default function TaskManager() {
         [...prev, data].sort((a, b) => a.name.localeCompare(b.name)),
       );
       setProjectInput("");
+      setShareProjectWithTeam(false);
       setShowProjectMenu(false); // Close menu on success
     }
   };
 
   const handleDeleteProject = async (projectId: string) => {
+    const project = projects.find((p) => p.id === projectId);
+    if (!project) return;
+
+    if ((projectTaskCounts[projectId] || 0) > 0) {
+      alert("Cannot delete a project that has tasks.");
+      return;
+    }
+    if (project.team_id && currentTeam?.admin_id !== user?.id) {
+      alert("Only the team admin can delete shared projects.");
+      return;
+    }
+
     const { error } = await supabase
       .from("projects")
       .delete()
       .eq("id", projectId);
     if (!error) {
       const deletedProject = projects.find((p) => p.id === projectId);
-      if (deletedProject && selectedList === deletedProject.name) {
+      if (
+        deletedProject &&
+        (selectedList === deletedProject.id ||
+          selectedList === deletedProject.name)
+      ) {
         setSelectedList("Inbox");
       }
       setProjects((prev) => prev.filter((p) => p.id !== projectId));
@@ -564,8 +595,12 @@ export default function TaskManager() {
     const inboxId = inboxProject?.id || null;
 
     const isVisibleInList = (task: Task) => {
-      if (lower === "inbox")
-        return !task.project_id || task.project_id === inboxId;
+      if (lower === "inbox") {
+        const isMineOrAssignedToMe =
+          task.user_id === user?.id || task.assigned_to === user?.id;
+        const hasNoProject = !task.project_id || task.project_id === inboxId;
+        return isMineOrAssignedToMe && hasNoProject;
+      }
       if (lower === "today") {
         const today = new Date().toISOString().split("T")[0];
         return task.due_date && task.due_date.startsWith(today);
@@ -583,8 +618,9 @@ export default function TaskManager() {
       if (lower === "assigned to me") {
         return task.assigned_to === user?.id;
       }
-      const project = projects.find((p) => p.name === selectedList);
-      return project ? task.project_id === project.id : true;
+      // Filter by Project ID (UUID)
+      const project = projects.find((p) => p.id === selectedList);
+      return project ? task.project_id === project.id : false;
     };
 
     const result: Task[] = [];
@@ -610,8 +646,34 @@ export default function TaskManager() {
     return result;
   }, [tasks, selectedList, projects, user?.id]);
 
+  // Assignment Notification Logic
+  useEffect(() => {
+    if (user && tasks.length > 0) {
+      const myTasks = tasks.filter(
+        (t) => t.assigned_to === user.id && t.status !== "done",
+      );
+      // Logic for Sign-in Assignment Notification (Toast)
+      // You can integrate a library like 'sonner' or 'react-hot-toast' here
+      const recentAssignment = myTasks.find((t) => {
+        // Note: You'd need created_at in your Task type/query for precise timing
+        return true; // Placeholder for logic
+      });
+      // You could use a toast library here
+    }
+  }, [user, tasks.length]);
+
   const handleQuickAdd = async () => {
     if (!newTaskTitle.trim() || !user) return;
+
+    // Determine project: Priority to the Quick Add picker, then the currently viewed list
+    let finalProjectId = quickAddProjectId;
+    if (!finalProjectId && !smartLists.includes(selectedList)) {
+      finalProjectId = selectedList; // selectedList stores the project ID when viewing a project
+    }
+
+    // Determine team: If it's a shared project, it should automatically be shared with the team
+    const activeProject = projects.find((p) => p.id === finalProjectId);
+    const finalTeamId = activeProject?.team_id || null;
 
     const { data, error } = await supabase
       .from("tasks")
@@ -619,13 +681,13 @@ export default function TaskManager() {
         title: newTaskTitle.trim(),
         status: "todo",
         priority: selectedPriority,
-        project_id: selectedProjectId,
+        project_id: finalProjectId,
         due_date: selectedDate
           ? selectedDate.toISOString().split("T")[0]
           : null,
         tags: newTags,
         user_id: user?.id,
-        team_id: shareWithTeam ? currentTeam?.id : null,
+        team_id: finalTeamId,
         assigned_to: user?.id, // Default to self on quick add
       })
       .select()
@@ -638,8 +700,7 @@ export default function TaskManager() {
       setSelectedPriority(0);
       setSelectedDate(null);
       setNewTags([]);
-      setShareWithTeam(false);
-      setSelectedProjectId(null);
+      setQuickAddProjectId(null);
       setTimeout(() => setEditingTask(data), 100);
     }
   };
@@ -694,10 +755,12 @@ export default function TaskManager() {
     const { error } = await supabase
       .from("tasks")
       .update({ status: newStatus })
-      .eq("id", taskId);
+      .eq("id", taskId)
+      .select()
+      .single();
 
     if (error) {
-      alert("Failed to update task");
+      alert("Failed to update task. You may not have permission.");
       setTasks((prev) =>
         prev.map((task) =>
           task.id === taskId
@@ -737,6 +800,14 @@ export default function TaskManager() {
   };
 
   const smartLists = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
+
+  const personalProjects = projects.filter(
+    (p) => !p.team_id && !smartLists.includes(p.name),
+  );
+
+  const sharedProjects = projects.filter(
+    (p) => p.team_id && !smartLists.includes(p.name),
+  );
 
   if (authLoading)
     return (
@@ -972,12 +1043,41 @@ export default function TaskManager() {
                         className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
                       />
                     </div>
+                    {profile?.team_id && (
+                      <div className="flex items-center gap-2 mb-3 px-1">
+                        <input
+                          type="checkbox"
+                          id="share-project"
+                          checked={shareProjectWithTeam}
+                          onChange={(e) =>
+                            setShareProjectWithTeam(e.target.checked)
+                          }
+                          className="w-3 h-3 accent-[#3b82f6]"
+                        />
+                        <label
+                          htmlFor="share-project"
+                          className="text-[10px] text-[#9ca3af] uppercase font-bold tracking-tight cursor-pointer"
+                        >
+                          Share with Team
+                        </label>
+                      </div>
+                    )}
+                    <button
+                      onClick={handleAddProject}
+                      className="w-full mb-3 py-1.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded text-[10px] font-bold uppercase transition-colors"
+                    >
+                      Create Project
+                    </button>
                     <div className="space-y-1 max-h-48 overflow-auto">
                       {projects
                         .filter((project) => !smartLists.includes(project.name))
                         .map((project) => {
                           const hasTasks =
                             (projectTaskCounts[project.id] || 0) > 0;
+                          const isShared = !!project.team_id;
+                          const canDelete =
+                            !hasTasks &&
+                            (!isShared || currentTeam?.admin_id === user?.id);
                           return (
                             <div
                               key={project.id}
@@ -990,7 +1090,7 @@ export default function TaskManager() {
                                 />
                                 <span className="text-xs">{project.name}</span>
                               </div>
-                              {!hasTasks && (
+                              {canDelete && (
                                 <button
                                   onClick={() =>
                                     handleDeleteProject(project.id)
@@ -1010,26 +1110,51 @@ export default function TaskManager() {
             </div>
           </div>
           <div className="space-y-1">
-            {projects
-              .filter((project) => !smartLists.includes(project.name))
-              .map((project) => (
-                <button
-                  key={project.id}
-                  onClick={() => setSelectedList(project.name)}
-                  className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
-                    selectedList === project.name
-                      ? "bg-[#1e2130] text-white"
-                      : "hover:bg-[#1e2130]"
-                  }`}
-                >
-                  <div
-                    className="w-2 h-2 rounded-full"
-                    style={{ backgroundColor: project.colour }}
-                  />
-                  {project.name}
-                </button>
-              ))}
+            {personalProjects.map((project) => (
+              <button
+                key={project.id}
+                onClick={() => setSelectedList(project.id)}
+                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+                  selectedList === project.id
+                    ? "bg-[#1e2130] text-white"
+                    : "hover:bg-[#1e2130]"
+                }`}
+              >
+                <div
+                  className="w-2 h-2 rounded-full"
+                  style={{ backgroundColor: project.colour }}
+                />
+                {project.name}
+              </button>
+            ))}
           </div>
+
+          {sharedProjects.length > 0 && (
+            <div className="mt-6">
+              <p className="text-xs uppercase tracking-widest text-[#6b7280] mb-2 px-2">
+                Shared Projects
+              </p>
+              <div className="space-y-1">
+                {sharedProjects.map((project) => (
+                  <button
+                    key={project.id}
+                    onClick={() => setSelectedList(project.id)}
+                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+                      selectedList === project.id
+                        ? "bg-[#1e2130] text-white"
+                        : "hover:bg-[#1e2130]"
+                    }`}
+                  >
+                    <div
+                      className="w-2 h-2 rounded-full"
+                      style={{ backgroundColor: project.colour }}
+                    />
+                    {project.name}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
       </div>
 
@@ -1349,7 +1474,7 @@ export default function TaskManager() {
                         onClick={() =>
                           setShowQuickAddProjectMenu(!showQuickAddProjectMenu)
                         }
-                        className={`transition-colors px-1 flex items-center justify-center ${selectedProjectId ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
+                        className={`transition-colors px-1 flex items-center justify-center ${quickAddProjectId ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
                         title="Assign project"
                       >
                         <svg
@@ -1376,7 +1501,7 @@ export default function TaskManager() {
                           <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50 overflow-hidden">
                             <button
                               onClick={() => {
-                                setSelectedProjectId(null);
+                                setQuickAddProjectId(null);
                                 setShowQuickAddProjectMenu(false);
                               }}
                               className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
@@ -1389,7 +1514,7 @@ export default function TaskManager() {
                                 <button
                                   key={project.id}
                                   onClick={() => {
-                                    setSelectedProjectId(project.id);
+                                    setQuickAddProjectId(project.id);
                                     setShowQuickAddProjectMenu(false);
                                   }}
                                   className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
@@ -1405,41 +1530,14 @@ export default function TaskManager() {
                       )}
                     </div>
                     <span className="text-xs text-[#3b82f6] font-medium">
-                      {selectedProjectId
-                        ? projects.find((p) => p.id === selectedProjectId)?.name
-                        : "Inbox"}
+                      {(() => {
+                        if (!quickAddProjectId) return "";
+                        return (
+                          projects.find((p) => p.id === quickAddProjectId)
+                            ?.name || ""
+                        );
+                      })()}
                     </span>
-
-                    {profile?.team_id && (
-                      <div className="flex items-center gap-2 ml-2 border-l border-[#374151] pl-3">
-                        <button
-                          onClick={() => setShareWithTeam(!shareWithTeam)}
-                          className={`flex items-center gap-1.5 px-2 py-1 rounded transition-colors text-[10px] font-bold uppercase tracking-wider ${
-                            shareWithTeam
-                              ? "bg-[#3b82f6]/20 text-[#3b82f6] border border-[#3b82f6]/30"
-                              : "bg-[#374151] text-[#6b7280] border border-transparent hover:text-white"
-                          }`}
-                        >
-                          <svg
-                            xmlns="http://www.w3.org/2000/svg"
-                            width="12"
-                            height="12"
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            strokeWidth="3"
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                          >
-                            <path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"></path>
-                            <circle cx="9" cy="7" r="4"></circle>
-                            <path d="M23 21v-2a4 4 0 0 0-3-3.87"></path>
-                            <path d="M16 3.13a4 4 0 0 1 0 7.75"></path>
-                          </svg>
-                          {shareWithTeam ? "Team" : "Private"}
-                        </button>
-                      </div>
-                    )}
                   </div>
 
                   <div className="flex items-center gap-2">
@@ -1575,14 +1673,18 @@ export default function TaskManager() {
                                 const { error } = await supabase
                                   .from("tasks")
                                   .update({ is_deleted: true })
-                                  .eq("id", task.id);
+                                  .eq("id", task.id)
+                                  .select()
+                                  .single();
 
                                 if (!error) {
                                   setTasks((prev) =>
                                     prev.filter((t) => t.id !== task.id),
                                   );
                                 } else {
-                                  alert("Failed to delete task");
+                                  alert(
+                                    "Failed to delete task. You may not have permission.",
+                                  );
                                 }
                                 setShowMenuForTask(null);
                               }}
@@ -1663,14 +1765,18 @@ export default function TaskManager() {
                                 const { error } = await supabase
                                   .from("tasks")
                                   .update({ is_deleted: true })
-                                  .eq("id", task.id);
+                                  .eq("id", task.id)
+                                  .select()
+                                  .single();
 
                                 if (!error) {
                                   setTasks((prev) =>
                                     prev.filter((t) => t.id !== task.id),
                                   );
                                 } else {
-                                  alert("Failed to delete task");
+                                  alert(
+                                    "Failed to delete task. You may not have permission.",
+                                  );
                                 }
                                 setShowMenuForTask(null);
                               }}
@@ -2016,7 +2122,9 @@ export default function TaskManager() {
                   assigned_to: editingTask.assigned_to,
                   project_id: editingTask.project_id,
                 })
-                .eq("id", editingTask.id);
+                .eq("id", editingTask.id)
+                .select()
+                .single();
 
               if (!error) {
                 setTasks((prev) =>
@@ -2026,6 +2134,8 @@ export default function TaskManager() {
                       : t,
                   ),
                 );
+              } else {
+                alert("Failed to save changes. You may not have permission.");
               }
               setEditingTask(null);
             }}
@@ -2167,84 +2277,93 @@ export default function TaskManager() {
                 </div>
 
                 {/* Assignee Selector */}
-                {profile?.team_id && (
-                  <div className="relative">
-                    <button
-                      onClick={() =>
-                        setShowEditAssigneeMenu(!showEditAssigneeMenu)
-                      }
-                      className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
-                        editingTask.assigned_to
-                          ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
-                          : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
-                      }`}
-                    >
-                      <svg
-                        xmlns="http://www.w3.org/2000/svg"
-                        width="14"
-                        height="14"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        strokeWidth="2"
-                        strokeLinecap="round"
-                        strokeLinejoin="round"
+                {profile?.team_id &&
+                  (() => {
+                    const isSharedProject =
+                      editingTask.project_id &&
+                      projects.find((p) => p.id === editingTask.project_id)
+                        ?.team_id;
+                    return isSharedProject;
+                  })() && (
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setShowEditAssigneeMenu(!showEditAssigneeMenu)
+                        }
+                        className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
+                          editingTask.assigned_to
+                            ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
+                            : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
+                        }`}
                       >
-                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                        <circle cx="12" cy="7" r="4" />
-                      </svg>
-                      {editingTask.assigned_to
-                        ? teamMembers.find(
-                            (m) => m.id === editingTask.assigned_to,
-                          )?.first_name || "Assigned"
-                        : "Unassigned"}
-                    </button>
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        {editingTask.assigned_to
+                          ? teamMembers.find(
+                              (m) => m.id === editingTask.assigned_to,
+                            )?.first_name || "Assigned"
+                          : "Unassigned"}
+                      </button>
 
-                    {showEditAssigneeMenu && (
-                      <>
-                        <div
-                          className="fixed inset-0 z-50"
-                          onClick={() => setShowEditAssigneeMenu(false)}
-                        />
-                        <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-[60] overflow-hidden">
-                          <button
-                            onClick={() => {
-                              setEditingTask({
-                                ...editingTask,
-                                assigned_to: null,
-                              });
-                              setShowEditAssigneeMenu(false);
-                            }}
-                            className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                          >
-                            <div className="w-5 h-5 rounded-full bg-[#374151] flex items-center justify-center text-[10px]">
-                              ?
-                            </div>
-                            Unassigned
-                          </button>
-                          {teamMembers.map((member) => (
+                      {showEditAssigneeMenu && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-50"
+                            onClick={() => setShowEditAssigneeMenu(false)}
+                          />
+                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-[60] overflow-hidden">
                             <button
-                              key={member.id}
                               onClick={() => {
                                 setEditingTask({
                                   ...editingTask,
-                                  assigned_to: member.id,
+                                  assigned_to: null,
                                 });
                                 setShowEditAssigneeMenu(false);
                               }}
                               className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                             >
-                              <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
-                                {(member.first_name?.[0] || "U").toUpperCase()}
+                              <div className="w-5 h-5 rounded-full bg-[#374151] flex items-center justify-center text-[10px]">
+                                ?
                               </div>
-                              {member.first_name} {member.last_name}
+                              Unassigned
                             </button>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </div>
-                )}
+                            {teamMembers.map((member) => (
+                              <button
+                                key={member.id}
+                                onClick={() => {
+                                  setEditingTask({
+                                    ...editingTask,
+                                    assigned_to: member.id,
+                                  });
+                                  setShowEditAssigneeMenu(false);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                              >
+                                <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
+                                  {(
+                                    member.first_name?.[0] || "U"
+                                  ).toUpperCase()}
+                                </div>
+                                {member.first_name} {member.last_name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                 {/* Priority Selector */}
                 <div className="relative">
@@ -2627,6 +2746,15 @@ export default function TaskManager() {
                 onClick={async () => {
                   const currentContent =
                     editor?.getHTML() || editingTask.content;
+
+                  const activeProject = projects.find(
+                    (p) => p.id === editingTask.project_id,
+                  );
+                  const finalTeamId = activeProject?.team_id || null;
+                  const finalAssignedTo = finalTeamId
+                    ? editingTask.assigned_to
+                    : user?.id;
+
                   const { error } = await supabase
                     .from("tasks")
                     .update({
@@ -2635,18 +2763,30 @@ export default function TaskManager() {
                       due_date: editingTask.due_date,
                       priority: editingTask.priority,
                       tags: editingTask.tags,
-                      assigned_to: editingTask.assigned_to,
+                      assigned_to: finalAssignedTo,
                       project_id: editingTask.project_id,
+                      team_id: finalTeamId,
                     })
-                    .eq("id", editingTask.id);
+                    .eq("id", editingTask.id)
+                    .select()
+                    .single();
 
                   if (!error) {
                     setTasks((prev) =>
                       prev.map((t) =>
                         t.id === editingTask.id
-                          ? { ...editingTask, content: currentContent }
+                          ? {
+                              ...editingTask,
+                              content: currentContent,
+                              team_id: finalTeamId,
+                              assigned_to: finalAssignedTo,
+                            }
                           : t,
                       ),
+                    );
+                  } else {
+                    alert(
+                      "Failed to save changes. You may not have permission.",
                     );
                   }
                   setEditingTask(null);
