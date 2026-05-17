@@ -683,6 +683,39 @@ export default function TaskManager() {
 
       {/* Sidebar */}
       <div className="w-64 border-r border-[#1e2130] p-4 flex flex-col">
+        {/* User Profile Section (Moved to top) */}
+        <div
+          onClick={() => setShowProfileModal(true)}
+          className="mb-4 px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors border-b border-[#1e2130] pb-4"
+        >
+          {profile?.avatar_url ? (
+            <Image
+              src={profile.avatar_url}
+              alt="Avatar"
+              width={32}
+              height={32}
+              className="rounded-full object-cover border border-[#374151]"
+              unoptimized
+            />
+          ) : (
+            <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner flex-shrink-0">
+              {(
+                profile?.first_name?.[0] ||
+                user.email?.[0] ||
+                "U"
+              ).toUpperCase()}
+            </div>
+          )}
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium text-white truncate">
+              {profile?.first_name
+                ? `${profile.first_name} ${profile.last_name || ""}`
+                : "User"}
+            </p>
+            <p className="text-[10px] text-[#6b7280] truncate">{user.email}</p>
+          </div>
+        </div>
+
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-white">Task Manager</h1>
           <p className="text-sm text-[#6b7280]">QHSE Team</p>
@@ -802,49 +835,6 @@ export default function TaskManager() {
                 </button>
               ))}
           </div>
-        </div>
-
-        {/* User Profile & Sign Out Section */}
-        <div className="mt-auto pt-4 border-t border-[#1e2130] space-y-1">
-          <div
-            onClick={() => setShowProfileModal(true)}
-            className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors"
-          >
-            {profile?.avatar_url ? (
-              <Image
-                src={profile.avatar_url}
-                alt="Avatar"
-                width={32}
-                height={32}
-                className="rounded-full object-cover border border-[#374151]"
-                unoptimized
-              />
-            ) : (
-              <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner">
-                {(
-                  profile?.first_name?.[0] ||
-                  user.email?.[0] ||
-                  "U"
-                ).toUpperCase()}
-              </div>
-            )}
-            <div className="flex-1 min-w-0">
-              <p className="text-sm font-medium text-white truncate">
-                {profile?.first_name
-                  ? `${profile.first_name} ${profile.last_name || ""}`
-                  : "User"}
-              </p>
-              <p className="text-[10px] text-[#6b7280] truncate">
-                {user.email}
-              </p>
-            </div>
-          </div>
-          <button
-            onClick={handleSignOut}
-            className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-400/10 transition-colors"
-          >
-            Sign Out
-          </button>
         </div>
       </div>
 
@@ -1646,6 +1636,16 @@ export default function TaskManager() {
                   className="flex-1 py-2.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg text-sm font-medium transition-colors"
                 >
                   Save Changes
+                </button>
+              </div>
+
+              <div className="pt-4 border-t border-[#374151]">
+                <button
+                  type="button"
+                  onClick={handleSignOut}
+                  className="w-full py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors font-medium"
+                >
+                  Sign Out from Account
                 </button>
               </div>
             </form>
