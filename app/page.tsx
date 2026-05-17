@@ -14,6 +14,7 @@ type Project = {
   name: string;
   colour: string;
   user_id?: string;
+  team_id?: string | null;
 };
 
 interface ProfileSettings {
@@ -31,6 +32,7 @@ type Task = {
   project_id: string | null;
   content: string | null;
   parent_id: string | null;
+  team_id?: string | null;
   is_deleted?: boolean;
   user_id?: string;
 };
@@ -40,6 +42,7 @@ type Profile = {
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
+  team_id: string | null;
   settings: ProfileSettings;
 };
 
@@ -68,6 +71,7 @@ export default function TaskManager() {
   const [editProfileLastName, setEditProfileLastName] = useState("");
   const [editProfileAvatarUrl, setEditProfileAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
+  const [teamNameInput, setTeamNameInput] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -173,6 +177,29 @@ export default function TaskManager() {
     setIsSubmitting(false);
   };
 
+  const handleCreateTeam = async (teamName: string) => {
+    if (!user) return;
+    // 1. Create the team
+    const { data: team, error: teamError } = await supabase
+      .from("teams")
+      .insert({ name: teamName, admin_id: user.id })
+      .select()
+      .single();
+
+    if (teamError) return alert(teamError.message);
+
+    // 2. Link the current user to this team
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ team_id: team.id })
+      .eq("id", user.id);
+
+    if (!profileError && profile) {
+      setProfile({ ...profile, team_id: team.id });
+      setTeamNameInput("");
+    }
+  };
+
   const playSuccessSound = useCallback(() => {
     const soundEnabled = profile?.settings?.sound_enabled ?? true;
     if (!soundEnabled) return;
@@ -266,7 +293,8 @@ export default function TaskManager() {
       const { data } = await supabase
         .from("projects")
         .select("*")
-        .eq("user_id", user.id)
+        // Removing .eq("user_id") because RLS now handles
+        // showing both Personal and Team projects
         .order("name");
       setProjects(data || []);
     };
@@ -275,7 +303,6 @@ export default function TaskManager() {
       const { data } = await supabase
         .from("tasks")
         .select("*")
-        .eq("user_id", user.id)
         .order("created_at", { ascending: false });
       setTasks(data || []);
     };
@@ -1538,6 +1565,45 @@ export default function TaskManager() {
                     </label>
                   </div>
                 </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
+                  Team
+                </label>
+                {!profile?.team_id ? (
+                  <div className="flex gap-2">
+                    <input
+                      type="text"
+                      placeholder="Team Name"
+                      value={teamNameInput}
+                      onChange={(e) => setTeamNameInput(e.target.value)}
+                      className="flex-1 bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
+                    />
+                    <button
+                      type="button"
+                      onClick={() => handleCreateTeam(teamNameInput)}
+                      disabled={!teamNameInput.trim()}
+                      className="px-4 py-2.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg text-sm font-medium transition-colors disabled:opacity-50"
+                    >
+                      Create
+                    </button>
+                  </div>
+                ) : (
+                  <div className="p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-white font-medium">
+                        Joined Team
+                      </span>
+                      <span className="text-[10px] bg-[#3b82f6]/20 text-[#3b82f6] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                        Member
+                      </span>
+                    </div>
+                    <p className="text-[10px] text-[#6b7280] mt-1 truncate">
+                      ID: {profile.team_id}
+                    </p>
+                  </div>
+                )}
               </div>
 
               <div className="space-y-1.5">
