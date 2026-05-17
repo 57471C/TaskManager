@@ -35,6 +35,7 @@ type Task = {
   team_id?: string | null;
   is_deleted?: boolean;
   user_id?: string;
+  assigned_to?: string | null;
 };
 
 type Profile = {
@@ -100,6 +101,7 @@ export default function TaskManager() {
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditPriorityMenu, setShowEditPriorityMenu] = useState(false);
+  const [showEditAssigneeMenu, setShowEditAssigneeMenu] = useState(false);
   const [newTags, setNewTags] = useState<string[]>([]);
   const [tagInput, setTagInput] = useState("");
   const [showTagMenu, setShowTagMenu] = useState(false);
@@ -235,7 +237,7 @@ export default function TaskManager() {
     // 2. Reassign their team tasks to the Admin (current user)
     await supabase
       .from("tasks")
-      .update({ user_id: user.id })
+      .update({ user_id: user.id, assigned_to: user.id })
       .eq("user_id", memberId)
       .eq("team_id", currentTeam.id);
 
@@ -578,6 +580,9 @@ export default function TaskManager() {
         due.setHours(0, 0, 0, 0);
         return due >= today && due <= in7Days;
       }
+      if (lower === "assigned to me") {
+        return task.assigned_to === user?.id;
+      }
       const project = projects.find((p) => p.name === selectedList);
       return project ? task.project_id === project.id : true;
     };
@@ -603,7 +608,7 @@ export default function TaskManager() {
 
     flatten(null);
     return result;
-  }, [tasks, selectedList, projects]);
+  }, [tasks, selectedList, projects, user?.id]);
 
   const handleQuickAdd = async () => {
     if (!newTaskTitle.trim() || !user) return;
@@ -619,8 +624,9 @@ export default function TaskManager() {
           ? selectedDate.toISOString().split("T")[0]
           : null,
         tags: newTags,
-        user_id: user.id,
+        user_id: user?.id,
         team_id: shareWithTeam ? currentTeam?.id : null,
+        assigned_to: user?.id, // Default to self on quick add
       })
       .select()
       .single();
@@ -649,6 +655,7 @@ export default function TaskManager() {
         status: "todo",
         parent_id: parentId,
         project_id: parentTask?.project_id,
+        assigned_to: parentTask?.assigned_to,
         user_id: user.id,
       })
       .select()
@@ -1503,6 +1510,19 @@ export default function TaskManager() {
                       {task.title}
                     </span>
 
+                    {task.assigned_to && (
+                      <div
+                        className="flex-shrink-0 w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[8px] font-bold text-white border border-[#1e2130]"
+                        title={`Assigned to ${teamMembers.find((m) => m.id === task.assigned_to)?.first_name || "Member"}`}
+                      >
+                        {(teamMembers.find((m) => m.id === task.assigned_to)
+                          ?.first_name?.[0] || user.id === task.assigned_to
+                          ? profile?.first_name?.[0]
+                          : "U"
+                        )?.toUpperCase()}
+                      </div>
+                    )}
+
                     {task.tags?.length > 0 && (
                       <div className="flex gap-1 ml-auto mr-2">
                         {task.tags.slice(0, 4).map((tag, i) => (
@@ -1993,6 +2013,7 @@ export default function TaskManager() {
                   due_date: editingTask.due_date,
                   priority: editingTask.priority,
                   tags: editingTask.tags,
+                  assigned_to: editingTask.assigned_to,
                   project_id: editingTask.project_id,
                 })
                 .eq("id", editingTask.id);
@@ -2144,6 +2165,86 @@ export default function TaskManager() {
                     </>
                   )}
                 </div>
+
+                {/* Assignee Selector */}
+                {profile?.team_id && (
+                  <div className="relative">
+                    <button
+                      onClick={() =>
+                        setShowEditAssigneeMenu(!showEditAssigneeMenu)
+                      }
+                      className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
+                        editingTask.assigned_to
+                          ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
+                          : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
+                      }`}
+                    >
+                      <svg
+                        xmlns="http://www.w3.org/2000/svg"
+                        width="14"
+                        height="14"
+                        viewBox="0 0 24 24"
+                        fill="none"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        strokeLinecap="round"
+                        strokeLinejoin="round"
+                      >
+                        <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                        <circle cx="12" cy="7" r="4" />
+                      </svg>
+                      {editingTask.assigned_to
+                        ? teamMembers.find(
+                            (m) => m.id === editingTask.assigned_to,
+                          )?.first_name || "Assigned"
+                        : "Unassigned"}
+                    </button>
+
+                    {showEditAssigneeMenu && (
+                      <>
+                        <div
+                          className="fixed inset-0 z-50"
+                          onClick={() => setShowEditAssigneeMenu(false)}
+                        />
+                        <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-[60] overflow-hidden">
+                          <button
+                            onClick={() => {
+                              setEditingTask({
+                                ...editingTask,
+                                assigned_to: null,
+                              });
+                              setShowEditAssigneeMenu(false);
+                            }}
+                            className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                          >
+                            <div className="w-5 h-5 rounded-full bg-[#374151] flex items-center justify-center text-[10px]">
+                              ?
+                            </div>
+                            Unassigned
+                          </button>
+                          {teamMembers.map((member) => (
+                            <button
+                              key={member.id}
+                              onClick={() => {
+                                setEditingTask({
+                                  ...editingTask,
+                                  assigned_to: member.id,
+                                });
+                                setShowEditAssigneeMenu(false);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                            >
+                              <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
+                                {(member.first_name?.[0] || "U").toUpperCase()}
+                              </div>
+                              {member.first_name} {member.last_name}
+                            </button>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </div>
+                )}
 
                 {/* Priority Selector */}
                 <div className="relative">
@@ -2534,6 +2635,7 @@ export default function TaskManager() {
                       due_date: editingTask.due_date,
                       priority: editingTask.priority,
                       tags: editingTask.tags,
+                      assigned_to: editingTask.assigned_to,
                       project_id: editingTask.project_id,
                     })
                     .eq("id", editingTask.id);
