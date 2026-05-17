@@ -42,6 +42,7 @@ type Profile = {
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
+  email?: string | null;
   team_id: string | null;
   settings: ProfileSettings;
 };
@@ -79,6 +80,8 @@ export default function TaskManager() {
   } | null>(null);
   const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
   const [memberToRemove, setMemberToRemove] = useState<Profile | null>(null);
+  const [showAddMemberModal, setShowAddMemberModal] = useState(false);
+  const [inviteEmail, setInviteEmail] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -242,6 +245,55 @@ export default function TaskManager() {
     const { data: updatedTasks } = await supabase.from("tasks").select("*");
     if (updatedTasks) setTasks(updatedTasks);
     setMemberToRemove(null);
+  };
+
+  const handleAddMemberByEmail = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!user || !currentTeam || !inviteEmail.trim()) return;
+
+    // 1. Find the user by email in the profiles table
+    const { data: targetProfile, error: searchError } = await supabase
+      .from("profiles")
+      .select("*")
+      .eq("email", inviteEmail.trim().toLowerCase())
+      .single();
+
+    if (searchError || !targetProfile) {
+      return alert(
+        "User not found. Ensure they have created an account first.",
+      );
+    }
+
+    // 2. Check if they are already in a team
+    if (targetProfile.team_id) {
+      return alert("This user is already a member of another team.");
+    }
+
+    // 3. Add them to your team
+    const { data: updatedProfile, error: updateError } = await supabase
+      .from("profiles")
+      .update({ team_id: currentTeam.id })
+      .eq("id", targetProfile.id)
+      .select()
+      .single();
+
+    if (updateError) {
+      return alert(updateError.message);
+    }
+
+    // 4. Update UI
+    if (updatedProfile) {
+      setTeamMembers((prev) => {
+        // Avoid duplicates if they were somehow already there
+        if (prev.find((m) => m.id === updatedProfile.id)) return prev;
+        return [...prev, updatedProfile];
+      });
+      setInviteEmail("");
+      setShowAddMemberModal(false);
+      alert(
+        `${updatedProfile.first_name || "User"} has been added to the team!`,
+      );
+    }
   };
 
   const handleDeleteTeam = async () => {
@@ -1769,6 +1821,15 @@ export default function TaskManager() {
                           </div>
                         )}
                       </div>
+                      {currentTeam?.admin_id === user.id && (
+                        <button
+                          type="button"
+                          onClick={() => setShowAddMemberModal(true)}
+                          className="mt-2 text-[10px] text-[#3b82f6] hover:underline flex items-center gap-1"
+                        >
+                          + Add Member
+                        </button>
+                      )}
                       <div className="mt-3 flex flex-wrap gap-2">
                         {teamMembers.map((member) => (
                           <div
@@ -2486,6 +2547,53 @@ export default function TaskManager() {
           </div>
         </div>
       )}
+
+      {/* Add Member Modal */}
+      {showAddMemberModal && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#1e2130] border border-[#374151] rounded-xl p-6 max-w-sm w-full shadow-2xl animate-in fade-in zoom-in duration-200">
+            <h3 className="text-lg font-bold text-white mb-2">Add Member</h3>
+            <p className="text-sm text-[#6b7280] mb-4">
+              Enter the email address of the person you want to add to{" "}
+              <span className="text-white font-medium">
+                {currentTeam?.name}
+              </span>
+              .
+            </p>
+            <form onSubmit={handleAddMemberByEmail} className="space-y-4">
+              <input
+                type="email"
+                placeholder="colleague@example.com"
+                value={inviteEmail}
+                onChange={(e) => setInviteEmail(e.target.value)}
+                className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm"
+                required
+                autoFocus
+              />
+              <div className="flex gap-3">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setShowAddMemberModal(false);
+                    setInviteEmail("");
+                  }}
+                  className="flex-1 py-2 rounded-lg border border-[#374151] text-white text-sm"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={!inviteEmail.trim()}
+                  className="flex-1 py-2 rounded-lg bg-[#3b82f6] hover:bg-[#2563eb] text-white text-sm font-medium transition-colors disabled:opacity-50"
+                >
+                  Add User
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* Member Removal Confirmation */}
       {memberToRemove && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
