@@ -72,6 +72,13 @@ export default function TaskManager() {
   const [editProfileAvatarUrl, setEditProfileAvatarUrl] = useState("");
   const [isUploadingAvatar, setIsUploadingAvatar] = useState(false);
   const [teamNameInput, setTeamNameInput] = useState("");
+  const [currentTeam, setCurrentTeam] = useState<{
+    id: string;
+    name: string;
+    admin_id: string;
+  } | null>(null);
+  const [teamMembers, setTeamMembers] = useState<Profile[]>([]);
+  const [memberToRemove, setMemberToRemove] = useState<Profile | null>(null);
   const [projects, setProjects] = useState<Project[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState("Inbox");
@@ -186,7 +193,15 @@ export default function TaskManager() {
       .select()
       .single();
 
-    if (teamError) return alert(teamError.message);
+    if (teamError) {
+      // Postgres error code 23505 is for unique constraint violations
+      if (teamError.code === "23505") {
+        return alert(
+          "A team with this name already exists. Please choose a unique name.",
+        );
+      }
+      return alert(teamError.message);
+    }
 
     // 2. Link the current user to this team
     const { error: profileError } = await supabase
@@ -196,8 +211,36 @@ export default function TaskManager() {
 
     if (!profileError && profile) {
       setProfile({ ...profile, team_id: team.id });
+      setCurrentTeam(team);
+      setTeamMembers([profile]);
       setTeamNameInput("");
     }
+  };
+
+  const handleRemoveMember = async (memberId: string) => {
+    if (!user || !currentTeam) return;
+
+    // 1. Remove member from team
+    const { error: profileError } = await supabase
+      .from("profiles")
+      .update({ team_id: null })
+      .eq("id", memberId);
+
+    if (profileError) return alert(profileError.message);
+
+    // 2. Reassign their team tasks to the Admin (current user)
+    await supabase
+      .from("tasks")
+      .update({ user_id: user.id })
+      .eq("user_id", memberId)
+      .eq("team_id", currentTeam.id);
+
+    // Update local state
+    setTeamMembers((prev) => prev.filter((m) => m.id !== memberId));
+    // Refresh tasks to show updated ownership if necessary
+    const { data: updatedTasks } = await supabase.from("tasks").select("*");
+    if (updatedTasks) setTasks(updatedTasks);
+    setMemberToRemove(null);
   };
 
   const playSuccessSound = useCallback(() => {
@@ -282,6 +325,7 @@ export default function TaskManager() {
   };
 
   const handleSignOut = async () => {
+    setShowProfileModal(false);
     await supabase.auth.signOut();
   };
 
@@ -336,6 +380,21 @@ export default function TaskManager() {
         setEditProfileFirstName(profileData.first_name || "");
         setEditProfileLastName(profileData.last_name || "");
         setEditProfileAvatarUrl(profileData.avatar_url || "");
+      }
+
+      if (profileData?.team_id) {
+        const { data: teamData } = await supabase
+          .from("teams")
+          .select("*")
+          .eq("id", profileData.team_id)
+          .single();
+        setCurrentTeam(teamData);
+
+        const { data: members } = await supabase
+          .from("profiles")
+          .select("*")
+          .eq("team_id", profileData.team_id);
+        setTeamMembers(members || []);
       }
     };
 
@@ -1590,18 +1649,43 @@ export default function TaskManager() {
                     </button>
                   </div>
                 ) : (
-                  <div className="p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-white font-medium">
-                        Joined Team
-                      </span>
-                      <span className="text-[10px] bg-[#3b82f6]/20 text-[#3b82f6] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
-                        Member
-                      </span>
+                  <div className="space-y-3">
+                    <div className="p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-white font-medium">
+                          {currentTeam?.name || "Joined Team"}
+                        </span>
+                        {currentTeam?.admin_id === user.id ? (
+                          <span className="text-[10px] bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                            Admin
+                          </span>
+                        ) : (
+                          <span className="text-[10px] bg-[#3b82f6]/20 text-[#3b82f6] px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
+                            Member
+                          </span>
+                        )}
+                      </div>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {teamMembers.map((member) => (
+                          <div
+                            key={member.id}
+                            className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1e2130] border border-[#374151] text-[11px] text-white"
+                          >
+                            <span>{member.first_name}</span>
+                            {currentTeam?.admin_id === user.id &&
+                              member.id !== user.id && (
+                                <button
+                                  type="button"
+                                  onClick={() => setMemberToRemove(member)}
+                                  className="text-[#6b7280] hover:text-red-400 transition-colors ml-1 font-bold"
+                                >
+                                  ×
+                                </button>
+                              )}
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                    <p className="text-[10px] text-[#6b7280] mt-1 truncate">
-                      ID: {profile.team_id}
-                    </p>
                   </div>
                 )}
               </div>
@@ -2293,6 +2377,38 @@ export default function TaskManager() {
                 className="flex-1 py-3 bg-[#3b82f6] text-white rounded-lg font-medium text-sm"
               >
                 Save
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Member Removal Confirmation */}
+      {memberToRemove && (
+        <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
+          <div className="bg-[#1e2130] border border-[#374151] rounded-xl p-6 max-w-sm w-full shadow-2xl">
+            <h3 className="text-lg font-bold text-white mb-2">
+              Remove Member?
+            </h3>
+            <p className="text-sm text-[#6b7280] mb-6">
+              Are you sure you want to remove{" "}
+              <span className="text-white font-medium">
+                {memberToRemove.first_name}
+              </span>{" "}
+              from the team? Any tasks currently assigned to them will be
+              reassigned to you.
+            </p>
+            <div className="flex gap-3">
+              <button
+                onClick={() => setMemberToRemove(null)}
+                className="flex-1 py-2 rounded-lg border border-[#374151] text-white text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => handleRemoveMember(memberToRemove.id)}
+                className="flex-1 py-2 rounded-lg bg-red-500 hover:bg-red-600 text-white text-sm font-medium"
+              >
+                Remove
               </button>
             </div>
           </div>
