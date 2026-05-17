@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useMemo } from "react";
+import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
 import { useEditor, EditorContent } from "@tiptap/react";
 import StarterKit from "@tiptap/starter-kit";
@@ -16,6 +16,11 @@ type Project = {
   user_id?: string;
 };
 
+interface ProfileSettings {
+  sound_enabled?: boolean;
+  [key: string]: unknown;
+}
+
 type Task = {
   id: string;
   title: string;
@@ -25,6 +30,7 @@ type Task = {
   tags: string[];
   project_id: string | null;
   content: string | null;
+  parent_id: string | null;
   is_deleted?: boolean;
   user_id?: string;
 };
@@ -34,8 +40,16 @@ type Profile = {
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
-  settings: Record<string, unknown>;
+  settings: ProfileSettings;
 };
+
+const extensions = [
+  StarterKit,
+  Link.configure({
+    openOnClick: false,
+  }),
+  Highlight,
+];
 
 export default function TaskManager() {
   const [user, setUser] = useState<User | null>(null);
@@ -80,17 +94,6 @@ export default function TaskManager() {
   const [showEditTaskProjectMenu, setShowEditTaskProjectMenu] = useState(false);
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
-
-  const extensions = useMemo(
-    () => [
-      StarterKit,
-      Link.configure({
-        openOnClick: false,
-      }),
-      Highlight,
-    ],
-    [],
-  );
 
   const editor = useEditor({
     extensions,
@@ -170,6 +173,13 @@ export default function TaskManager() {
     setIsSubmitting(false);
   };
 
+  const playSuccessSound = useCallback(() => {
+    const soundEnabled = profile?.settings?.sound_enabled ?? true;
+    if (!soundEnabled) return;
+    const audio = new Audio("/complete.mp3");
+    audio.play().catch((err) => console.error("Audio play failed:", err));
+  }, [profile]);
+
   const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
     try {
       setIsUploadingAvatar(true);
@@ -211,10 +221,7 @@ export default function TaskManager() {
         .single();
 
       if (dbError) throw dbError;
-      if (updatedProfile) {
-        setProfile(updatedProfile);
-        setEditProfileAvatarUrl(updatedProfile.avatar_url || "");
-      }
+      if (updatedProfile) setProfile(updatedProfile);
     } catch (error: unknown) {
       const message =
         error instanceof Error ? error.message : "An unknown error occurred";
@@ -243,9 +250,7 @@ export default function TaskManager() {
       setProfile(data);
       setShowProfileModal(false);
     } else if (error) {
-      const message =
-        error instanceof Error ? error.message : "An unknown error occurred";
-      alert(message);
+      alert(error.message);
     }
   };
 
@@ -365,47 +370,52 @@ export default function TaskManager() {
 
   // Smart filtering
   const displayedTasks = useMemo(() => {
-    let filtered = [...tasks];
     const lower = selectedList.toLowerCase().trim();
-
     const inboxProject = projects.find((p) => p.name.toLowerCase() === "inbox");
     const inboxId = inboxProject?.id || null;
 
-    if (lower === "inbox") {
-      filtered = filtered.filter(
-        (t) => !t.project_id || t.project_id === inboxId,
-      );
-    } else if (lower === "today") {
-      const today = new Date().toISOString().split("T")[0];
-      filtered = filtered.filter(
-        (t) => t.due_date && t.due_date.startsWith(today),
-      );
-      filtered.sort((a, b) =>
-        (a.due_date || "").localeCompare(b.due_date || ""),
-      );
-    } else if (lower === "next 7 days") {
-      const today = new Date();
-      today.setHours(0, 0, 0, 0);
-      const in7Days = new Date(today);
-      in7Days.setDate(today.getDate() + 7);
-
-      filtered = filtered.filter((t) => {
-        if (!t.due_date) return false;
-        const due = new Date(t.due_date);
+    const isVisibleInList = (task: Task) => {
+      if (lower === "inbox")
+        return !task.project_id || task.project_id === inboxId;
+      if (lower === "today") {
+        const today = new Date().toISOString().split("T")[0];
+        return task.due_date && task.due_date.startsWith(today);
+      }
+      if (lower === "next 7 days") {
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        const in7Days = new Date(today);
+        in7Days.setDate(today.getDate() + 7);
+        if (!task.due_date) return false;
+        const due = new Date(task.due_date);
         due.setHours(0, 0, 0, 0);
         return due >= today && due <= in7Days;
-      });
-      filtered.sort((a, b) =>
-        (a.due_date || "").localeCompare(b.due_date || ""),
-      );
-    } else {
-      const project = projects.find((p) => p.name === selectedList);
-      if (project) {
-        filtered = filtered.filter((t) => t.project_id === project.id);
       }
-    }
+      const project = projects.find((p) => p.name === selectedList);
+      return project ? task.project_id === project.id : true;
+    };
 
-    return filtered;
+    const result: Task[] = [];
+    const flatten = (parentId: string | null) => {
+      const children = tasks
+        .filter((t) => t.parent_id === parentId)
+        .sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
+
+      children.forEach((task) => {
+        const hasVisibleChild = (id: string): boolean => {
+          const subs = tasks.filter((t) => t.parent_id === id);
+          return subs.some((s) => isVisibleInList(s) || hasVisibleChild(s.id));
+        };
+
+        if (isVisibleInList(task) || hasVisibleChild(task.id)) {
+          result.push(task);
+          flatten(task.id);
+        }
+      });
+    };
+
+    flatten(null);
+    return result;
   }, [tasks, selectedList, projects]);
 
   const handleQuickAdd = async () => {
@@ -423,6 +433,7 @@ export default function TaskManager() {
           : null,
         tags: newTags,
         user_id: user.id,
+        parent_id: null,
       })
       .select()
       .single();
@@ -439,11 +450,45 @@ export default function TaskManager() {
     }
   };
 
+  const handleAddSubtask = async (parentId: string) => {
+    if (!user) return;
+    const parentTask = tasks.find((t) => t.id === parentId);
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: "New Sub-task",
+        status: "todo",
+        parent_id: parentId,
+        project_id: parentTask?.project_id,
+        user_id: user.id,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setTasks((prev) => [data, ...prev]);
+      setEditingTask(data);
+    }
+  };
+
   const toggleTaskStatus = async (
     taskId: string,
     currentStatus: string | null,
   ) => {
     const newStatus = currentStatus === "done" ? "todo" : "done";
+
+    if (newStatus === "done") {
+      // Check if any sub-tasks are incomplete
+      const hasIncompleteSubtasks = tasks.some(
+        (t) => t.parent_id === taskId && t.status !== "done",
+      );
+      if (hasIncompleteSubtasks) {
+        alert("Please complete all sub-tasks first.");
+        return;
+      }
+      playSuccessSound();
+    }
 
     setTasks((prev) =>
       prev.map((task) =>
@@ -474,6 +519,13 @@ export default function TaskManager() {
     const d = new Date(date);
     d.setHours(0, 0, 0, 0);
     return d < today;
+  };
+
+  const getTaskDepth = (task: Task) => {
+    if (!task.parent_id) return 0;
+    const parent = tasks.find((t) => t.id === task.parent_id);
+    if (!parent?.parent_id) return 1;
+    return 2;
   };
 
   const isTodayDate = (date: Date) => {
@@ -631,39 +683,6 @@ export default function TaskManager() {
 
       {/* Sidebar */}
       <div className="w-64 border-r border-[#1e2130] p-4 flex flex-col">
-        {/* User Profile Section (Moved to top) */}
-        <div
-          onClick={() => setShowProfileModal(true)}
-          className="mb-4 px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors border-b border-[#1e2130] pb-4"
-        >
-          {profile?.avatar_url ? (
-            <Image
-              src={profile.avatar_url}
-              alt="Avatar"
-              width={32}
-              height={32}
-              className="rounded-full object-cover border border-[#374151]"
-              unoptimized
-            />
-          ) : (
-            <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner flex-shrink-0">
-              {(
-                profile?.first_name?.[0] ||
-                user.email?.[0] ||
-                "U"
-              ).toUpperCase()}
-            </div>
-          )}
-          <div className="flex-1 min-w-0">
-            <p className="text-sm font-medium text-white truncate">
-              {profile?.first_name
-                ? `${profile.first_name} ${profile.last_name || ""}`
-                : "User"}
-            </p>
-            <p className="text-[10px] text-[#6b7280] truncate">{user.email}</p>
-          </div>
-        </div>
-
         <div className="mb-6">
           <h1 className="text-xl font-semibold text-white">Task Manager</h1>
           <p className="text-sm text-[#6b7280]">QHSE Team</p>
@@ -783,6 +802,49 @@ export default function TaskManager() {
                 </button>
               ))}
           </div>
+        </div>
+
+        {/* User Profile & Sign Out Section */}
+        <div className="mt-auto pt-4 border-t border-[#1e2130] space-y-1">
+          <div
+            onClick={() => setShowProfileModal(true)}
+            className="px-3 py-2 flex items-center gap-3 cursor-pointer hover:bg-[#1e2130] rounded-lg transition-colors"
+          >
+            {profile?.avatar_url ? (
+              <Image
+                src={profile.avatar_url}
+                alt="Avatar"
+                width={32}
+                height={32}
+                className="rounded-full object-cover border border-[#374151]"
+                unoptimized
+              />
+            ) : (
+              <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner">
+                {(
+                  profile?.first_name?.[0] ||
+                  user.email?.[0] ||
+                  "U"
+                ).toUpperCase()}
+              </div>
+            )}
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-medium text-white truncate">
+                {profile?.first_name
+                  ? `${profile.first_name} ${profile.last_name || ""}`
+                  : "User"}
+              </p>
+              <p className="text-[10px] text-[#6b7280] truncate">
+                {user.email}
+              </p>
+            </div>
+          </div>
+          <button
+            onClick={handleSignOut}
+            className="w-full text-left px-3 py-2 rounded-lg text-xs text-red-400 hover:bg-red-400/10 transition-colors"
+          >
+            Sign Out
+          </button>
         </div>
       </div>
 
@@ -1199,19 +1261,21 @@ export default function TaskManager() {
                 const dateObj = task.due_date ? new Date(task.due_date) : null;
                 const isOverdue = dateObj ? isPastDate(dateObj) : false;
                 const dateLabel = dateObj ? formatDateShort(dateObj) : null;
+                const depth = getTaskDepth(task);
 
                 return (
                   <div
                     key={task.id}
                     onClick={() => setEditingTask(task)}
-                    className={`bg-[#1e2130] p-4 rounded-lg flex items-center gap-3 border-l-4 cursor-pointer hover:bg-[#252a38] transition-colors relative ${
+                    style={{ marginLeft: `${depth * 28}px` }}
+                    className={`bg-[#1e2130] p-4 rounded-lg flex items-center gap-3 border-l-4 cursor-pointer hover:bg-[#252a38] transition-colors relative group/task ${
                       task.priority === 5
                         ? "border-red-500"
                         : task.priority === 3
                           ? "border-orange-500"
                           : task.priority === 1
                             ? "border-blue-500"
-                            : "border-[#6b7280]"
+                            : "border-transparent"
                     }`}
                   >
                     <input
@@ -1245,10 +1309,10 @@ export default function TaskManager() {
 
                     {dateLabel && (
                       <span
-                        className={`text-[10px] font-medium px-2 py-0.5 rounded border ${
+                        className={`text-[10px] font-medium px-2 py-0.5 rounded border whitespace-nowrap ${
                           isOverdue
-                            ? "text-red-500 border-red-500/30 bg-red-500/5"
-                            : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
+                            ? "text-red-500 border-red-500/30 bg-red-500/10"
+                            : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/10"
                         }`}
                       >
                         {dateLabel}
@@ -1326,7 +1390,8 @@ export default function TaskManager() {
                   <div
                     key={task.id}
                     onClick={() => setEditingTask(task)}
-                    className="bg-[#1e2130]/50 p-4 rounded-lg flex items-center gap-3 border-l-4 border-transparent cursor-pointer hover:bg-[#1e2130] transition-colors relative opacity-60"
+                    style={{ marginLeft: `${getTaskDepth(task) * 28}px` }}
+                    className="bg-[#1e2130]/40 p-4 rounded-lg flex items-center gap-3 border-l-4 border-transparent cursor-pointer hover:bg-[#1e2130] transition-colors relative opacity-60"
                   >
                     <input
                       type="checkbox"
@@ -1485,6 +1550,89 @@ export default function TaskManager() {
                 </div>
               </div>
 
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
+                  Preferences
+                </label>
+                <div className="flex items-center justify-between p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="text-[#6b7280]">
+                      {(profile?.settings?.sound_enabled ?? true) ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                          <line x1="23" y1="9" x2="17" y2="15"></line>
+                          <line x1="17" y1="9" x2="23" y2="15"></line>
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-sm text-white">Completion Sound</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!user || !profile) return;
+                      const currentSettings = profile.settings || {};
+                      const newValue = !(currentSettings.sound_enabled ?? true);
+
+                      const { data, error } = await supabase
+                        .from("profiles")
+                        .update({
+                          settings: {
+                            ...currentSettings,
+                            sound_enabled: newValue,
+                          },
+                        })
+                        .eq("id", user.id)
+                        .select()
+                        .single();
+
+                      if (!error && data) {
+                        setProfile(data);
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                      (profile?.settings?.sound_enabled ?? true)
+                        ? "bg-[#3b82f6]"
+                        : "bg-[#374151]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        (profile?.settings?.sound_enabled ?? true)
+                          ? "translate-x-6"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
+                </div>
+              </div>
+
               <div className="pt-2 flex gap-3">
                 <button
                   type="button"
@@ -1498,16 +1646,6 @@ export default function TaskManager() {
                   className="flex-1 py-2.5 bg-[#3b82f6] hover:bg-[#2563eb] text-white rounded-lg text-sm font-medium transition-colors"
                 >
                   Save Changes
-                </button>
-              </div>
-
-              <div className="pt-4 border-t border-[#374151]">
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="w-full py-2 text-sm text-red-400 hover:text-red-300 hover:bg-red-400/10 rounded-lg transition-colors font-medium"
-                >
-                  Sign Out from Account
                 </button>
               </div>
             </form>
@@ -1937,6 +2075,22 @@ export default function TaskManager() {
                   )}
                 </div>
               </div>
+
+              {/* Sub-task Section */}
+              {getTaskDepth(editingTask) < 2 && (
+                <div>
+                  <label className="text-sm text-[#6b7280] block mb-2">
+                    SUB-TASKS
+                  </label>
+                  <button
+                    onClick={() => handleAddSubtask(editingTask.id)}
+                    className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    <span>Create sub-task</span>
+                  </button>
+                </div>
+              )}
 
               <div>
                 <label className="block text-sm text-[#6b7280] mb-2">
