@@ -29,12 +29,17 @@ type Task = {
   user_id?: string;
 };
 
+interface ProfileSettings {
+  sound_enabled?: boolean;
+  [key: string]: unknown;
+}
+
 type Profile = {
   id: string;
   first_name: string | null;
   last_name: string | null;
   avatar_url: string | null;
-  settings: Record<string, unknown>;
+  settings: ProfileSettings;
 };
 
 const extensions = [
@@ -165,6 +170,13 @@ export default function TaskManager() {
       if (error) setAuthError(error.message);
     }
     setIsSubmitting(false);
+  };
+
+  const playSuccessSound = () => {
+    const soundEnabled = profile?.settings?.sound_enabled ?? true;
+    if (!soundEnabled) return;
+    const audio = new Audio("/complete.mp3");
+    audio.play().catch((err) => console.error("Audio play failed:", err));
   };
 
   const uploadAvatar = async (event: React.ChangeEvent<HTMLInputElement>) => {
@@ -441,6 +453,10 @@ export default function TaskManager() {
     currentStatus: string | null,
   ) => {
     const newStatus = currentStatus === "done" ? "todo" : "done";
+
+    if (newStatus === "done") {
+      playSuccessSound();
+    }
 
     setTasks((prev) =>
       prev.map((task) =>
@@ -1487,6 +1503,89 @@ export default function TaskManager() {
                       {isUploadingAvatar ? "Uploading..." : "Upload PNG/JPG"}
                     </label>
                   </div>
+                </div>
+              </div>
+
+              <div className="space-y-1.5">
+                <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
+                  Preferences
+                </label>
+                <div className="flex items-center justify-between p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
+                  <div className="flex items-center gap-3">
+                    <div className="text-[#6b7280]">
+                      {(profile?.settings?.sound_enabled ?? true) ? (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
+                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                        </svg>
+                      ) : (
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="20"
+                          height="20"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
+                          <line x1="23" y1="9" x2="17" y2="15"></line>
+                          <line x1="17" y1="9" x2="23" y2="15"></line>
+                        </svg>
+                      )}
+                    </div>
+                    <span className="text-sm text-white">Completion Sound</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={async () => {
+                      if (!user || !profile) return;
+                      const currentSettings = profile.settings || {};
+                      const newValue = !(currentSettings.sound_enabled ?? true);
+
+                      const { data, error } = await supabase
+                        .from("profiles")
+                        .update({
+                          settings: {
+                            ...currentSettings,
+                            sound_enabled: newValue,
+                          },
+                        })
+                        .eq("id", user.id)
+                        .select()
+                        .single();
+
+                      if (!error && data) {
+                        setProfile(data);
+                      }
+                    }}
+                    className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
+                      (profile?.settings?.sound_enabled ?? true)
+                        ? "bg-[#3b82f6]"
+                        : "bg-[#374151]"
+                    }`}
+                  >
+                    <span
+                      className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform ${
+                        (profile?.settings?.sound_enabled ?? true)
+                          ? "translate-x-6"
+                          : "translate-x-1"
+                      }`}
+                    />
+                  </button>
                 </div>
               </div>
 
