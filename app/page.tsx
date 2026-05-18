@@ -8,6 +8,7 @@ import Link from "@tiptap/extension-link";
 import Highlight from "@tiptap/extension-highlight";
 import { User } from "@supabase/supabase-js";
 import Image from "next/image";
+import { Turnstile } from "@marsidev/react-turnstile";
 
 type Project = {
   id: string;
@@ -48,7 +49,7 @@ type Profile = {
   settings: ProfileSettings;
 };
 
-const extensions = [
+const TIPTAP_EXTENSIONS = [
   StarterKit,
   Link.configure({
     openOnClick: false,
@@ -66,6 +67,8 @@ export default function TaskManager() {
   const [authLastName, setAuthLastName] = useState("");
   const [authError, setAuthError] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  const [captchaToken, setCaptchaToken] = useState("");
+  const [captchaKey, setCaptchaKey] = useState(0);
 
   const [profile, setProfile] = useState<Profile | null>(null);
   const [showProfileModal, setShowProfileModal] = useState(false);
@@ -114,7 +117,7 @@ export default function TaskManager() {
   const [shareProjectWithTeam, setShareProjectWithTeam] = useState(false);
 
   const editor = useEditor({
-    extensions,
+    extensions: TIPTAP_EXTENSIONS,
     immediatelyRender: false,
     content: editingTask?.content || "",
     onBlur: ({ editor }) => {
@@ -168,6 +171,12 @@ export default function TaskManager() {
     setAuthError(null);
     setIsSubmitting(true);
 
+    if (!captchaToken) {
+      setAuthError("Please complete the captcha verification.");
+      setIsSubmitting(false);
+      return;
+    }
+
     if (isSignUp) {
       const { error } = await supabase.auth.signUp({
         email: authEmail,
@@ -177,16 +186,29 @@ export default function TaskManager() {
             first_name: authFirstName,
             last_name: authLastName,
           },
+          captchaToken,
         },
       });
-      if (error) setAuthError(error.message);
-      else setAuthError("Success! Check your email for a confirmation link.");
+      if (error) {
+        setAuthError(error.message);
+        setCaptchaToken("");
+        setCaptchaKey((prev) => prev + 1);
+      } else {
+        setAuthError("Success! Check your email for a confirmation link.");
+      }
     } else {
       const { error } = await supabase.auth.signInWithPassword({
         email: authEmail,
         password: authPassword,
+        options: {
+          captchaToken,
+        },
       });
-      if (error) setAuthError(error.message);
+      if (error) {
+        setAuthError(error.message);
+        setCaptchaToken("");
+        setCaptchaKey((prev) => prev + 1);
+      }
     }
     setIsSubmitting(false);
   };
@@ -867,6 +889,18 @@ export default function TaskManager() {
               className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 text-white focus:border-[#3b82f6] outline-none"
               required
             />
+            <div className="flex justify-center pt-2">
+              <Turnstile
+                key={captchaKey}
+                siteKey={
+                  process.env.NODE_ENV === "production"
+                    ? "0x4AAAAAADRWHo28SkB_JWVV"
+                    : "0x4AAAAAADRWHitmEbBWAHHo2-RBGJM0vC4"
+                }
+                onSuccess={setCaptchaToken}
+                options={{ theme: "dark" }}
+              />
+            </div>
             <button
               type="submit"
               disabled={isSubmitting}
