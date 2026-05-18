@@ -2790,7 +2790,7 @@ export default function TaskManager() {
                   const finalTeamId = activeProject?.team_id || null;
                   const finalAssignedTo = finalTeamId
                     ? editingTask.assigned_to
-                    : user?.id;
+                    : null;
 
                   const { error } = await supabase
                     .from("tasks")
