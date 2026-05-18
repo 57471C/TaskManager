@@ -671,18 +671,17 @@ export default function TaskManager() {
   // Assignment Notification Logic
   useEffect(() => {
     if (user && tasks.length > 0) {
-      const myTasks = tasks.filter(
-        (t) => t.assigned_to === user.id && t.status !== "done",
-      );
       // Logic for Sign-in Assignment Notification (Toast)
       // You can integrate a library like 'sonner' or 'react-hot-toast' here
-      const recentAssignment = myTasks.find((t) => {
-        // Note: You'd need created_at in your Task type/query for precise timing
-        return true; // Placeholder for logic
-      });
+      // const myTasks = tasks.filter(
+      //   (task) => task.assigned_to === user.id && task.status !== "done",
+      // );
+      // const recentAssignment = myTasks.find((task) => {
+      //   return true; // Placeholder for logic
+      // });
       // You could use a toast library here
     }
-  }, [user, tasks.length]);
+  }, [user, tasks]);
 
   const handleQuickAdd = async () => {
     if (!newTaskTitle.trim() || !user) return;
@@ -893,11 +892,15 @@ export default function TaskManager() {
               <Turnstile
                 key={captchaKey}
                 siteKey={
-                  process.env.NODE_ENV === "production"
-                    ? "0x4AAAAAADRWHo28SkB_JWVV"
-                    : "0x4AAAAAADRWHitmEbBWAHHo2-RBGJM0vC4"
+                  process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
+                  "1x00000000000000000000AA"
                 }
                 onSuccess={setCaptchaToken}
+                onExpire={() => setCaptchaToken("")}
+                onError={(err) => {
+                  console.error("Turnstile error:", err);
+                  setAuthError("Captcha failed. Please try again.");
+                }}
                 options={{ theme: "dark" }}
               />
             </div>
