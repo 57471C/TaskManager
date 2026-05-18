@@ -17,6 +17,14 @@ type Project = {
   icon?: string | null;
   user_id?: string;
   team_id?: string | null;
+  folder_id?: string | null;
+};
+
+type ProjectFolder = {
+  id: string;
+  name: string;
+  user_id?: string;
+  team_id?: string | null;
 };
 
 interface ProfileSettings {
@@ -187,6 +195,8 @@ export default function TaskManager() {
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
   const [projects, setProjects] = useState<Project[]>([]);
+  const [folders, setFolders] = useState<ProjectFolder[]>([]);
+  const [folderInput, setFolderInput] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState<string>("Inbox");
   const [newTaskTitle, setNewTaskTitle] = useState("");
@@ -581,6 +591,16 @@ export default function TaskManager() {
         .order("name");
 
       setProjects(data || []);
+
+      const { data: folderData } = await supabase
+        .from("project_folders")
+        .select("*")
+        .or(
+          `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
+        )
+        .order("name");
+
+      setFolders(folderData || []);
     };
 
     const fetchTasks = async () => {
@@ -656,7 +676,11 @@ export default function TaskManager() {
 
   const updateProjectAppearance = async (
     projectId: string,
-    updates: { colour?: string; icon?: string | null },
+    updates: {
+      colour?: string;
+      icon?: string | null;
+      folder_id?: string | null;
+    },
   ) => {
     const { data, error } = await supabase
       .from("projects")
@@ -708,6 +732,30 @@ export default function TaskManager() {
       setProjectInput("");
       setShareProjectWithTeam(false);
       setShowProjectMenu(false); // Close menu on success
+    }
+  };
+
+  const handleAddFolder = async () => {
+    if (!folderInput.trim() || !user) return;
+    const { data, error } = await supabase
+      .from("project_folders")
+      .insert({
+        name: folderInput.trim(),
+        user_id: user.id,
+        team_id: shareProjectWithTeam ? currentTeam?.id : null,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setFolders((prev) =>
+        [...prev, data].sort((a, b) => a.name.localeCompare(b.name)),
+      );
+      setFolderInput("");
+      setShareProjectWithTeam(false);
+      setShowProjectMenu(false); // Close menu on success
+    } else if (error) {
+      alert(`Failed to add folder: ${error.message}`);
     }
   };
 
@@ -770,6 +818,12 @@ export default function TaskManager() {
       if (lower === "assigned to me") {
         return task.assigned_to === user?.id;
       }
+      // Check if it's a folder
+      const folder = folders.find((f) => f.id === selectedList);
+      if (folder) {
+        const projectForTask = projects.find((p) => p.id === task.project_id);
+        return projectForTask ? projectForTask.folder_id === folder.id : false;
+      }
       // Filter by Project ID (UUID)
       const project = projects.find((p) => p.id === selectedList);
       return project ? task.project_id === project.id : false;
@@ -796,7 +850,7 @@ export default function TaskManager() {
 
     flatten(null);
     return result;
-  }, [tasks, selectedList, projects, user?.id, profile]);
+  }, [tasks, selectedList, projects, user?.id, profile, folders]);
 
   // Assignment Notification Logic
   useEffect(() => {
@@ -819,7 +873,10 @@ export default function TaskManager() {
     // Determine project: Priority to the Quick Add picker, then the currently viewed list
     let finalProjectId = quickAddProjectId;
     if (!finalProjectId && !SMART_LISTS.includes(selectedList)) {
-      finalProjectId = selectedList; // selectedList stores the project ID when viewing a project
+      const isFolder = folders.some((f) => f.id === selectedList);
+      if (!isFolder) {
+        finalProjectId = selectedList; // selectedList stores the project ID when viewing a project
+      }
     }
 
     // Determine team: If it's a shared project, it should automatically be shared with the team
@@ -837,7 +894,7 @@ export default function TaskManager() {
         tags: newTags,
         user_id: user?.id,
         team_id: finalTeamId,
-        assigned_to: user?.id, // Default to self on quick add
+        assigned_to: null,
       })
       .select()
       .single();
@@ -851,6 +908,33 @@ export default function TaskManager() {
       setNewTags([]);
       setQuickAddProjectId(null);
       setTimeout(() => setEditingTask(data), 100);
+    }
+  };
+
+  const handleBoardQuickAdd = async (projectId: string, title: string) => {
+    if (!title.trim() || !user) return;
+    const activeProject = projects.find((p) => p.id === projectId);
+    const finalTeamId = activeProject?.team_id || null;
+
+    const { data, error } = await supabase
+      .from("tasks")
+      .insert({
+        title: title.trim(),
+        status: "todo",
+        priority: 0,
+        project_id: projectId,
+        tags: [],
+        user_id: user?.id,
+        team_id: finalTeamId,
+        assigned_to: null,
+      })
+      .select()
+      .single();
+
+    if (!error && data) {
+      setTasks((prev) => [data, ...prev]);
+    } else if (error) {
+      alert(`Failed to add task: ${error.message}`);
     }
   };
 
@@ -927,95 +1011,328 @@ export default function TaskManager() {
     return 2;
   };
 
+  const handleSaveEditedTask = async () => {
+    if (!editingTask) return;
+    const currentContent = editor?.getHTML() || editingTask.content;
+
+    const activeProject = projects.find((p) => p.id === editingTask.project_id);
+    const finalTeamId = activeProject?.team_id || null;
+    const finalAssignedTo = finalTeamId ? editingTask.assigned_to : null;
+
+    const { error } = await supabase
+      .from("tasks")
+      .update({
+        title: editingTask.title,
+        content: currentContent || null,
+        due_date: editingTask.due_date,
+        priority: editingTask.priority,
+        tags: editingTask.tags,
+        assigned_to: finalAssignedTo,
+        project_id: editingTask.project_id,
+        team_id: finalTeamId,
+      })
+      .eq("id", editingTask.id)
+      .select()
+      .single();
+
+    if (!error) {
+      setTasks((prev) =>
+        prev.map((t) =>
+          t.id === editingTask.id
+            ? {
+                ...editingTask,
+                content: currentContent,
+                team_id: finalTeamId,
+                assigned_to: finalAssignedTo,
+              }
+            : t,
+        ),
+      );
+    } else {
+      alert("Failed to save changes. You may not have permission.");
+    }
+    setEditingTask(null);
+  };
+
   const personalProjects = projects.filter(
     (p) => !p.team_id && !SMART_LISTS.includes(p.name),
   );
+
+  const personalFolders = folders.filter((f) => !f.team_id);
 
   const sharedProjects = projects.filter(
     (p) => p.team_id && !SMART_LISTS.includes(p.name),
   );
 
-  const renderProjectList = (projectList: Project[]) => {
-    return projectList.map((project) => (
-      <div key={project.id} className="relative group/project">
-        <button
-          onClick={() => setSelectedList(project.id)}
-          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
-            selectedList === project.id
-              ? "bg-[#1e2130] text-white"
-              : "hover:bg-[#1e2130]"
-          }`}
-        >
-          <div
-            onClick={(e) => {
-              e.stopPropagation();
-              setShowProjectIconMenu(
-                showProjectIconMenu === project.id ? null : project.id,
-              );
-            }}
-            className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer"
-            title="Change icon or color"
-          >
-            {project.icon ? (
-              <span className="text-xs">{project.icon}</span>
-            ) : (
-              <div
-                className="w-2 h-2 rounded-full"
-                style={{ backgroundColor: project.colour }}
-              />
-            )}
-          </div>
-          <span className="truncate">{project.name}</span>
-        </button>
+  const sharedFolders = folders.filter((f) => f.team_id);
 
-        {showProjectIconMenu === project.id && (
-          <>
-            <div
-              className="fixed inset-0 z-40"
-              onClick={() => setShowProjectIconMenu(null)}
-            />
-            <div className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200">
-              <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
-                Colors
-              </p>
-              <div className="flex flex-wrap gap-2 mb-4">
-                {PROJECT_COLORS.map((color) => (
-                  <button
-                    key={color}
-                    onClick={() => {
-                      updateProjectAppearance(project.id, {
-                        colour: color,
-                        icon: null,
-                      });
-                      setShowProjectIconMenu(null);
-                    }}
-                    className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${project.colour === color && !project.icon ? "border-white" : "border-transparent"}`}
-                    style={{ backgroundColor: color }}
-                  />
-                ))}
-              </div>
-              <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
-                Icons
-              </p>
-              <div className="grid grid-cols-6 gap-2">
-                {PROJECT_ICONS.map((icon) => (
-                  <button
-                    key={icon}
-                    onClick={() => {
-                      updateProjectAppearance(project.id, { icon });
-                      setShowProjectIconMenu(null);
-                    }}
-                    className={`flex items-center justify-center w-7 h-7 rounded hover:bg-[#374151] transition-colors text-sm ${project.icon === icon ? "bg-[#374151]" : ""}`}
-                  >
-                    {icon}
-                  </button>
-                ))}
-              </div>
+  const renderProjectList = (
+    projectList: Project[],
+    folderList: ProjectFolder[],
+  ) => {
+    const looseProjects = projectList.filter((p) => !p.folder_id);
+    return (
+      <>
+        {folderList.map((folder) => (
+          <div key={folder.id} className="mb-3">
+            <button
+              onClick={() => setSelectedList(folder.id)}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+                selectedList === folder.id
+                  ? "bg-[#1e2130] text-white"
+                  : "text-[#9ca3af] hover:bg-[#1e2130] hover:text-white"
+              }`}
+            >
+              <span className="text-[14px]">📁</span>
+              <span className="truncate">{folder.name}</span>
+            </button>
+            <div className="ml-3 pl-2 mt-1 border-l border-[#374151] space-y-1">
+              {projectList
+                .filter((p) => p.folder_id === folder.id)
+                .map(renderSingleProject)}
             </div>
-          </>
+          </div>
+        ))}
+        {looseProjects.map(renderSingleProject)}
+      </>
+    );
+  };
+
+  const renderSingleProject = (project: Project) => (
+    <div key={project.id} className="relative group/project">
+      <button
+        onClick={() => setSelectedList(project.id)}
+        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+          selectedList === project.id
+            ? "bg-[#1e2130] text-white"
+            : "hover:bg-[#1e2130]"
+        }`}
+      >
+        <div
+          onClick={(e) => {
+            e.stopPropagation();
+            setShowProjectIconMenu(
+              showProjectIconMenu === project.id ? null : project.id,
+            );
+          }}
+          className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer"
+          title="Change icon or color"
+        >
+          {project.icon ? (
+            <span className="text-xs">{project.icon}</span>
+          ) : (
+            <div
+              className="w-2 h-2 rounded-full"
+              style={{ backgroundColor: project.colour }}
+            />
+          )}
+        </div>
+        <span className="truncate">{project.name}</span>
+      </button>
+
+      {showProjectIconMenu === project.id && (
+        <>
+          <div
+            className="fixed inset-0 z-40"
+            onClick={() => setShowProjectIconMenu(null)}
+          />
+          <div className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200">
+            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
+              Colors
+            </p>
+            <div className="flex flex-wrap gap-2 mb-4">
+              {PROJECT_COLORS.map((color) => (
+                <button
+                  key={color}
+                  onClick={() => {
+                    updateProjectAppearance(project.id, {
+                      colour: color,
+                      icon: null,
+                    });
+                    setShowProjectIconMenu(null);
+                  }}
+                  className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${project.colour === color && !project.icon ? "border-white" : "border-transparent"}`}
+                  style={{ backgroundColor: color }}
+                />
+              ))}
+            </div>
+            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
+              Icons
+            </p>
+            <div className="grid grid-cols-6 gap-2">
+              {PROJECT_ICONS.map((icon) => (
+                <button
+                  key={icon}
+                  onClick={() => {
+                    updateProjectAppearance(project.id, { icon });
+                    setShowProjectIconMenu(null);
+                  }}
+                  className={`flex items-center justify-center w-7 h-7 rounded hover:bg-[#374151] transition-colors text-sm ${project.icon === icon ? "bg-[#374151]" : ""}`}
+                >
+                  {icon}
+                </button>
+              ))}
+            </div>
+            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2 mt-4">
+              Move to Folder
+            </p>
+            <select
+              value={project.folder_id || ""}
+              onChange={(e) => {
+                updateProjectAppearance(project.id, {
+                  folder_id: e.target.value || null,
+                });
+                setShowProjectIconMenu(null);
+              }}
+              className="w-full bg-[#0f1117] border border-[#374151] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
+            >
+              <option value="">No Folder</option>
+              {folders
+                .filter((f) => !!f.team_id === !!project.team_id)
+                .map((f) => (
+                  <option key={f.id} value={f.id}>
+                    {f.name}
+                  </option>
+                ))}
+            </select>
+          </div>
+        </>
+      )}
+    </div>
+  );
+
+  const renderTaskNode = (task: Task, compact: boolean = false) => {
+    const tz = getUserTz(profile);
+    const isOverdue = task.due_date ? isPastDateStr(task.due_date, tz) : false;
+    const dateLabel = task.due_date
+      ? formatDateShortStr(task.due_date, tz)
+      : null;
+    const depth = getTaskDepth(task);
+    const isCompleted = task.status === "done";
+
+    return (
+      <div
+        key={task.id}
+        onClick={() => setEditingTask(task)}
+        style={{ marginLeft: `${depth * (compact ? 12 : 28)}px` }}
+        className={`rounded-lg flex items-center gap-3 border-l-4 cursor-pointer transition-colors relative group/task ${
+          isCompleted
+            ? "bg-[#1e2130]/40 hover:bg-[#1e2130] opacity-60 border-transparent"
+            : `bg-[#1e2130] hover:bg-[#252a38] ${
+                task.priority === 5
+                  ? "border-red-500"
+                  : task.priority === 3
+                    ? "border-orange-500"
+                    : task.priority === 1
+                      ? "border-blue-500"
+                      : "border-transparent"
+              }`
+        } ${compact ? "p-3" : "p-4"}`}
+      >
+        <input
+          type="checkbox"
+          checked={isCompleted}
+          onClick={(e) => e.stopPropagation()}
+          onChange={() => toggleTaskStatus(task.id, task.status)}
+          className="w-4 h-4 accent-[#22c55e] cursor-pointer flex-shrink-0"
+        />
+
+        <span
+          className={`flex-1 truncate ${
+            isCompleted ? "line-through text-[#6b7280]" : ""
+          } ${compact ? "text-sm" : "text-base"}`}
+        >
+          {task.title}
+        </span>
+
+        {task.assigned_to && (
+          <div
+            className={`flex-shrink-0 rounded-full bg-[#3b82f6] flex items-center justify-center font-bold text-white border border-[#1e2130] ${
+              compact ? "w-4 h-4 text-[7px]" : "w-5 h-5 text-[8px]"
+            }`}
+            title={`Assigned to ${
+              teamMembers.find((m) => m.id === task.assigned_to)?.first_name ||
+              "Member"
+            }`}
+          >
+            {(
+              teamMembers.find((m) => m.id === task.assigned_to)
+                ?.first_name?.[0] ||
+              (user?.id === task.assigned_to ? profile?.first_name?.[0] : "U")
+            )?.toUpperCase()}
+          </div>
         )}
+
+        {!compact && task.tags?.length > 0 && (
+          <div className="flex gap-1 ml-auto mr-2 shrink-0">
+            {task.tags.slice(0, 4).map((tag, i) => (
+              <span
+                key={i}
+                className="text-[9px] px-1.5 py-0 rounded-full border border-[#374151] bg-[#1e2130] text-[#9ca3af]"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
+        )}
+
+        {dateLabel && (
+          <span
+            className={`text-[10px] font-medium px-2 py-0.5 rounded border whitespace-nowrap shrink-0 ${
+              isOverdue
+                ? "text-red-500 border-red-500/30 bg-red-500/10"
+                : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/10"
+            }`}
+          >
+            {dateLabel}
+          </span>
+        )}
+
+        <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
+          <button
+            onClick={() =>
+              setShowMenuForTask(showMenuForTask === task.id ? null : task.id)
+            }
+            className="text-[#6b7280] hover:text-white px-2 py-1 text-lg leading-none"
+          >
+            ⋯
+          </button>
+
+          {showMenuForTask === task.id && (
+            <>
+              <div
+                className="fixed inset-0 z-40"
+                onClick={() => setShowMenuForTask(null)}
+              />
+              <div className="absolute right-0 mt-1 w-40 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
+                <button
+                  onClick={async () => {
+                    const { error } = await supabase
+                      .from("tasks")
+                      .update({ is_deleted: true })
+                      .eq("id", task.id)
+                      .select()
+                      .single();
+
+                    if (!error) {
+                      setTasks((prev) => prev.filter((t) => t.id !== task.id));
+                    } else {
+                      alert(
+                        "Failed to delete task. You may not have permission.",
+                      );
+                    }
+                    setShowMenuForTask(null);
+                  }}
+                  className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2 text-red-400"
+                >
+                  🗑️ Delete
+                </button>
+              </div>
+            </>
+          )}
+        </div>
       </div>
-    ));
+    );
   };
 
   if (authLoading)
@@ -1192,7 +1509,7 @@ export default function TaskManager() {
             <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner flex-shrink-0">
               {(
                 profile?.first_name?.[0] ||
-                user.email?.[0] ||
+                user?.email?.[0] ||
                 "U"
               ).toUpperCase()}
             </div>
@@ -1203,7 +1520,7 @@ export default function TaskManager() {
                 ? `${profile.first_name} ${profile.last_name || ""}`
                 : "User"}
             </p>
-            <p className="text-[10px] text-[#6b7280] truncate">{user.email}</p>
+            <p className="text-[10px] text-[#6b7280] truncate">{user?.email}</p>
           </div>
         </div>
 
@@ -1293,6 +1610,28 @@ export default function TaskManager() {
                     >
                       Create Project
                     </button>
+                    <div className="w-full h-px bg-[#374151] my-3" />
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
+                        placeholder="New folder..."
+                        value={folderInput}
+                        onChange={(e) => setFolderInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddFolder();
+                          }
+                        }}
+                        className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddFolder}
+                      className="w-full mb-3 py-1.5 bg-[#374151] hover:bg-[#4b5563] text-white rounded text-[10px] font-bold uppercase transition-colors"
+                    >
+                      Create Folder
+                    </button>
                     <div className="space-y-1 max-h-48 overflow-auto">
                       {projects
                         .filter(
@@ -1346,7 +1685,9 @@ export default function TaskManager() {
               )}
             </div>
           </div>
-          <div className="space-y-1">{renderProjectList(personalProjects)}</div>
+          <div className="space-y-1">
+            {renderProjectList(personalProjects, personalFolders)}
+          </div>
 
           {sharedProjects.length > 0 && (
             <div className="mt-6">
@@ -1354,7 +1695,7 @@ export default function TaskManager() {
                 Shared Projects
               </p>
               <div className="space-y-1">
-                {renderProjectList(sharedProjects)}
+                {renderProjectList(sharedProjects, sharedFolders)}
               </div>
             </div>
           )}
@@ -1362,664 +1703,586 @@ export default function TaskManager() {
       </div>
 
       {/* Main Content Area */}
-      <div className="flex-1 flex flex-col">
-        {/* Top Bar - Inline Add Task */}
-        <div className="border-b border-[#1e2130] px-6 py-3 bg-[#0f1117]">
-          <div className="w-full max-w-[620px]">
-            {!isAddingTask ? (
-              <div
-                onClick={() => setIsAddingTask(true)}
-                className="flex items-center gap-3 bg-[#1e2130] hover:bg-[#252a38] text-[#6b7280] px-4 py-2.5 rounded-lg cursor-text border border-transparent hover:border-[#374151] w-full max-w-[620px] transition-all"
-              >
-                <span className="text-lg">+</span>
-                <span>Add Task</span>
-              </div>
-            ) : (
-              <div className="bg-[#1e2130] border border-[#3b82f6] rounded-lg px-4 py-3 w-full max-w-[620px]">
-                <input
-                  type="text"
-                  placeholder="What would you like to do?"
-                  value={newTaskTitle}
-                  onChange={(e) => setNewTaskTitle(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") handleQuickAdd();
-                  }}
-                  className="w-full bg-transparent text-white placeholder-[#6b7280] focus:outline-none text-[15px]"
-                  autoFocus
-                />
-
-                <div className="flex items-center justify-between mt-2">
-                  <div className="flex items-center gap-3">
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowDatePicker(!showDatePicker)}
-                        className={`transition-colors px-1 flex items-center justify-center ${
-                          selectedDate
-                            ? isPastDateStr(selectedDate, getUserTz(profile))
-                              ? "text-red-500"
-                              : "text-[#3b82f6]"
-                            : "text-[#6b7280] hover:text-white"
-                        }`}
-                        title="Set due date"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <rect
-                            x="3"
-                            y="4"
-                            width="18"
-                            height="18"
-                            rx="2"
-                            ry="2"
-                          ></rect>
-                          <line x1="16" y1="2" x2="16" y2="6"></line>
-                          <line x1="8" y1="2" x2="8" y2="6"></line>
-                          <line x1="3" y1="10" x2="21" y2="10"></line>
-                        </svg>
-                      </button>
-
-                      {showDatePicker && (
-                        <>
+      <div className="flex-1 flex flex-col overflow-hidden">
+        {(() => {
+          const selectedFolder = folders.find((f) => f.id === selectedList);
+          if (selectedFolder) {
+            const folderProjects = projects.filter(
+              (p) => p.folder_id === selectedFolder.id,
+            );
+            return (
+              <div className="flex-1 overflow-x-auto p-6 flex gap-6 items-start h-full">
+                {folderProjects.map((project) => (
+                  <div
+                    key={project.id}
+                    className="w-[340px] flex-shrink-0 flex flex-col max-h-full bg-[#1e2130]/50 rounded-xl border border-[#374151] overflow-hidden"
+                  >
+                    <div className="p-4 border-b border-[#1e2130] font-bold text-white flex items-center justify-between bg-[#1e2130]">
+                      <div className="flex items-center gap-2">
+                        {project.icon ? (
+                          <span className="text-sm">{project.icon}</span>
+                        ) : (
                           <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowDatePicker(false)}
+                            className="w-3 h-3 rounded-full"
+                            style={{ backgroundColor: project.colour }}
                           />
-                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-2 z-50">
-                            <div className="px-2 pb-2 mb-2 border-b border-[#374151] grid grid-cols-1 gap-1">
-                              <button
-                                onClick={() => {
-                                  setSelectedDate(
-                                    getDateStrWithOffset(getUserTz(profile), 0),
-                                  );
-                                  setShowDatePicker(false);
-                                }}
-                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
+                        )}
+                        <span className="truncate">{project.name}</span>
+                      </div>
+                      <span className="text-xs text-[#6b7280] font-normal bg-[#0f1117] px-2 py-0.5 rounded">
+                        {projectTaskCounts[project.id] || 0}
+                      </span>
+                    </div>
+
+                    <div className="p-3 border-b border-[#1e2130] bg-[#0f1117]">
+                      <input
+                        type="text"
+                        placeholder="Quick add task..."
+                        onKeyDown={(e) => {
+                          if (
+                            e.key === "Enter" &&
+                            e.currentTarget.value.trim()
+                          ) {
+                            handleBoardQuickAdd(
+                              project.id,
+                              e.currentTarget.value,
+                            );
+                            e.currentTarget.value = "";
+                          }
+                        }}
+                        className="w-full bg-[#1e2130] border border-[#374151] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3b82f6]"
+                      />
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                      {displayedTasks
+                        .filter(
+                          (t) =>
+                            t.project_id === project.id && t.status !== "done",
+                        )
+                        .map((task) => renderTaskNode(task, true))}
+
+                      {displayedTasks.some(
+                        (t) =>
+                          t.project_id === project.id && t.status === "done",
+                      ) && (
+                        <div className="pt-4 pb-2">
+                          <div className="flex items-center gap-4">
+                            <div className="h-px bg-[#374151] flex-1"></div>
+                            <span className="text-[10px] font-bold uppercase tracking-widest text-[#6b7280]">
+                              Completed
+                            </span>
+                            <div className="h-px bg-[#374151] flex-1"></div>
+                          </div>
+                        </div>
+                      )}
+
+                      {displayedTasks
+                        .filter(
+                          (t) =>
+                            t.project_id === project.id && t.status === "done",
+                        )
+                        .map((task) => renderTaskNode(task, true))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            );
+          }
+
+          return (
+            <>
+              {/* Top Bar - Inline Add Task */}
+              <div className="border-b border-[#1e2130] px-6 py-3 bg-[#0f1117]">
+                <div className="w-full max-w-[620px]">
+                  {!isAddingTask ? (
+                    <div
+                      onClick={() => setIsAddingTask(true)}
+                      className="flex items-center gap-3 bg-[#1e2130] hover:bg-[#252a38] text-[#6b7280] px-4 py-2.5 rounded-lg cursor-text border border-transparent hover:border-[#374151] w-full max-w-[620px] transition-all"
+                    >
+                      <span className="text-lg">+</span>
+                      <span>Add Task</span>
+                    </div>
+                  ) : (
+                    <div className="bg-[#1e2130] border border-[#3b82f6] rounded-lg px-4 py-3 w-full max-w-[620px]">
+                      <input
+                        type="text"
+                        placeholder="What would you like to do?"
+                        value={newTaskTitle}
+                        onChange={(e) => setNewTaskTitle(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") handleQuickAdd();
+                        }}
+                        className="w-full bg-transparent text-white placeholder-[#6b7280] focus:outline-none text-[15px]"
+                        autoFocus
+                      />
+
+                      <div className="flex items-center justify-between mt-2">
+                        <div className="flex items-center gap-3">
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowDatePicker(!showDatePicker)}
+                              className={`transition-colors px-1 flex items-center justify-center ${
+                                selectedDate
+                                  ? isPastDateStr(
+                                      selectedDate,
+                                      getUserTz(profile),
+                                    )
+                                    ? "text-red-500"
+                                    : "text-[#3b82f6]"
+                                  : "text-[#6b7280] hover:text-white"
+                              }`}
+                              title="Set due date"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
                               >
-                                <span>Today</span>
-                                <span className="text-[#6b7280]">0d</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedDate(
-                                    getDateStrWithOffset(getUserTz(profile), 1),
-                                  );
-                                  setShowDatePicker(false);
-                                }}
-                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
-                              >
-                                <span>Tomorrow</span>
-                                <span className="text-[#6b7280]">+1d</span>
-                              </button>
-                              <button
-                                onClick={() => {
-                                  setSelectedDate(
-                                    getDateStrWithOffset(getUserTz(profile), 7),
-                                  );
-                                  setShowDatePicker(false);
-                                }}
-                                className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
-                              >
-                                <span>Next Week</span>
-                                <span className="text-[#6b7280]">+7d</span>
-                              </button>
-                            </div>
-                            <div className="px-2">
-                              <input
-                                type="date"
-                                value={selectedDate || ""}
-                                onChange={(e) => {
-                                  if (e.target.value) {
-                                    setSelectedDate(e.target.value);
-                                    setShowDatePicker(false);
-                                  }
-                                }}
-                                className="w-full bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
-                              />
-                            </div>
-                            {selectedDate && (
-                              <button
-                                onClick={() => {
-                                  setSelectedDate(null);
-                                  setShowDatePicker(false);
-                                }}
-                                className="w-full mt-2 px-2 py-1 text-center text-[10px] text-red-400 hover:underline"
-                              >
-                                Clear Date
-                              </button>
+                                <rect
+                                  x="3"
+                                  y="4"
+                                  width="18"
+                                  height="18"
+                                  rx="2"
+                                  ry="2"
+                                ></rect>
+                                <line x1="16" y1="2" x2="16" y2="6"></line>
+                                <line x1="8" y1="2" x2="8" y2="6"></line>
+                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                              </svg>
+                            </button>
+
+                            {showDatePicker && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShowDatePicker(false)}
+                                />
+                                <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-2 z-50">
+                                  <div className="px-2 pb-2 mb-2 border-b border-[#374151] grid grid-cols-1 gap-1">
+                                    <button
+                                      onClick={() => {
+                                        setSelectedDate(
+                                          getDateStrWithOffset(
+                                            getUserTz(profile),
+                                            0,
+                                          ),
+                                        );
+                                        setShowDatePicker(false);
+                                      }}
+                                      className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
+                                    >
+                                      <span>Today</span>
+                                      <span className="text-[#6b7280]">0d</span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedDate(
+                                          getDateStrWithOffset(
+                                            getUserTz(profile),
+                                            1,
+                                          ),
+                                        );
+                                        setShowDatePicker(false);
+                                      }}
+                                      className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
+                                    >
+                                      <span>Tomorrow</span>
+                                      <span className="text-[#6b7280]">
+                                        +1d
+                                      </span>
+                                    </button>
+                                    <button
+                                      onClick={() => {
+                                        setSelectedDate(
+                                          getDateStrWithOffset(
+                                            getUserTz(profile),
+                                            7,
+                                          ),
+                                        );
+                                        setShowDatePicker(false);
+                                      }}
+                                      className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
+                                    >
+                                      <span>Next Week</span>
+                                      <span className="text-[#6b7280]">
+                                        +7d
+                                      </span>
+                                    </button>
+                                  </div>
+                                  <div className="px-2">
+                                    <input
+                                      type="date"
+                                      value={selectedDate || ""}
+                                      onChange={(e) => {
+                                        if (e.target.value) {
+                                          setSelectedDate(e.target.value);
+                                          setShowDatePicker(false);
+                                        }
+                                      }}
+                                      className="w-full bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
+                                    />
+                                  </div>
+                                  {selectedDate && (
+                                    <button
+                                      onClick={() => {
+                                        setSelectedDate(null);
+                                        setShowDatePicker(false);
+                                      }}
+                                      className="w-full mt-2 px-2 py-1 text-center text-[10px] text-red-400 hover:underline"
+                                    >
+                                      Clear Date
+                                    </button>
+                                  )}
+                                </div>
+                              </>
                             )}
                           </div>
-                        </>
-                      )}
-                    </div>
 
-                    {selectedDate && (
-                      <span
-                        className={`text-xs font-medium ${
-                          isPastDateStr(selectedDate, getUserTz(profile))
-                            ? "text-red-500"
-                            : "text-[#3b82f6]"
-                        }`}
-                      >
-                        {formatDateShortStr(selectedDate, getUserTz(profile))}
-                      </span>
-                    )}
-
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowPriorityMenu(!showPriorityMenu)}
-                        className={`transition-colors px-1 flex items-center justify-center ${
-                          selectedPriority === 5
-                            ? "text-red-500"
-                            : selectedPriority === 3
-                              ? "text-orange-500"
-                              : selectedPriority === 1
-                                ? "text-blue-500"
-                                : "text-[#6b7280] hover:text-white"
-                        }`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill={
-                            selectedPriority === 0 ? "none" : "currentColor"
-                          }
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                          className="transition-all"
-                        >
-                          <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
-                          <line x1="4" x2="4" y1="22" y2="15" />
-                        </svg>
-                      </button>
-
-                      {showPriorityMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowPriorityMenu(false)}
-                          />
-                          <div className="absolute left-0 mt-2 w-44 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
-                            <button
-                              onClick={() => {
-                                setSelectedPriority(0);
-                                setShowPriorityMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                          {selectedDate && (
+                            <span
+                              className={`text-xs font-medium ${
+                                isPastDateStr(selectedDate, getUserTz(profile))
+                                  ? "text-red-500"
+                                  : "text-[#3b82f6]"
+                              }`}
                             >
-                              <span className="text-[#6b7280]">●</span> None
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedPriority(1);
-                                setShowPriorityMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                            >
-                              <span className="text-blue-500">●</span> Low
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedPriority(3);
-                                setShowPriorityMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                            >
-                              <span className="text-orange-500">●</span> Medium
-                            </button>
-                            <button
-                              onClick={() => {
-                                setSelectedPriority(5);
-                                setShowPriorityMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                            >
-                              <span className="text-red-500">●</span> High
-                            </button>
-                          </div>
-                        </>
-                      )}
-                    </div>
-
-                    <div className="relative">
-                      <button
-                        onClick={() => setShowTagMenu(!showTagMenu)}
-                        className={`transition-colors px-1 flex items-center justify-center ${newTags.length > 0 ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
-                        title="Add tags (max 4)"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
-                          <path d="M7 7h.01" />
-                        </svg>
-                      </button>
-
-                      {showTagMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowTagMenu(false)}
-                          />
-                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg p-3 z-50">
-                            <div className="flex gap-2 mb-3">
-                              <input
-                                type="text"
-                                placeholder="Tag name..."
-                                value={tagInput}
-                                onChange={(e) => setTagInput(e.target.value)}
-                                onKeyDown={(e) => {
-                                  if (
-                                    e.key === "Enter" &&
-                                    tagInput.trim() &&
-                                    newTags.length < 4
-                                  ) {
-                                    e.preventDefault();
-                                    e.stopPropagation();
-                                    setNewTags([...newTags, tagInput.trim()]);
-                                    setTagInput("");
-                                  }
-                                }}
-                                className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
-                              />
-                            </div>
-                            <div className="flex flex-wrap gap-1">
-                              {newTags.map((tag, i) => (
-                                <span
-                                  key={i}
-                                  className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] flex items-center gap-1"
-                                >
-                                  {tag}
-                                  <button
-                                    onClick={() =>
-                                      setNewTags(
-                                        newTags.filter(
-                                          (_, index) => index !== i,
-                                        ),
-                                      )
-                                    }
-                                    className="hover:text-red-400"
-                                  >
-                                    ×
-                                  </button>
-                                </span>
-                              ))}
-                              {newTags.length === 0 && (
-                                <p className="text-[10px] text-[#6b7280]">
-                                  No tags added
-                                </p>
+                              {formatDateShortStr(
+                                selectedDate,
+                                getUserTz(profile),
                               )}
-                            </div>
-                          </div>
-                        </>
-                      )}
-                    </div>
+                            </span>
+                          )}
 
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setShowQuickAddProjectMenu(!showQuickAddProjectMenu)
-                        }
-                        className={`transition-colors px-1 flex items-center justify-center ${quickAddProjectId ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
-                        title="Assign project"
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="18"
-                          height="18"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
-                        </svg>
-                      </button>
-
-                      {showQuickAddProjectMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowQuickAddProjectMenu(false)}
-                          />
-                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50 overflow-hidden">
+                          <div className="relative">
                             <button
-                              onClick={() => {
-                                setQuickAddProjectId(null);
-                                setShowQuickAddProjectMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                              onClick={() =>
+                                setShowPriorityMenu(!showPriorityMenu)
+                              }
+                              className={`transition-colors px-1 flex items-center justify-center ${
+                                selectedPriority === 5
+                                  ? "text-red-500"
+                                  : selectedPriority === 3
+                                    ? "text-orange-500"
+                                    : selectedPriority === 1
+                                      ? "text-blue-500"
+                                      : "text-[#6b7280] hover:text-white"
+                              }`}
                             >
-                              <span className="text-[#6b7280] w-3 text-center inline-block flex-shrink-0">
-                                ●
-                              </span>{" "}
-                              Inbox
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill={
+                                  selectedPriority === 0
+                                    ? "none"
+                                    : "currentColor"
+                                }
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                                className="transition-all"
+                              >
+                                <path d="M4 15s1-1 4-1 5 2 8 2 4-1 4-1V3s-1 1-4 1-5-2-8-2-4 1-4 1z" />
+                                <line x1="4" x2="4" y1="22" y2="15" />
+                              </svg>
                             </button>
-                            {projects
-                              .filter((p) => !SMART_LISTS.includes(p.name))
-                              .map((project) => (
-                                <button
-                                  key={project.id}
-                                  onClick={() => {
-                                    setQuickAddProjectId(project.id);
-                                    setShowQuickAddProjectMenu(false);
-                                  }}
-                                  className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                                >
-                                  {project.icon ? (
-                                    <span className="text-[10px] w-3 text-center inline-block flex-shrink-0">
-                                      {project.icon}
-                                    </span>
-                                  ) : (
-                                    <span
-                                      style={{ color: project.colour }}
-                                      className="w-3 text-center inline-block flex-shrink-0"
-                                    >
+
+                            {showPriorityMenu && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShowPriorityMenu(false)}
+                                />
+                                <div className="absolute left-0 mt-2 w-44 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPriority(0);
+                                      setShowPriorityMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                  >
+                                    <span className="text-[#6b7280]">●</span>{" "}
+                                    None
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPriority(1);
+                                      setShowPriorityMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                  >
+                                    <span className="text-blue-500">●</span> Low
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPriority(3);
+                                      setShowPriorityMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                  >
+                                    <span className="text-orange-500">●</span>{" "}
+                                    Medium
+                                  </button>
+                                  <button
+                                    onClick={() => {
+                                      setSelectedPriority(5);
+                                      setShowPriorityMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                  >
+                                    <span className="text-red-500">●</span> High
+                                  </button>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="relative">
+                            <button
+                              onClick={() => setShowTagMenu(!showTagMenu)}
+                              className={`transition-colors px-1 flex items-center justify-center ${newTags.length > 0 ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
+                              title="Add tags (max 4)"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
+                                <path d="M7 7h.01" />
+                              </svg>
+                            </button>
+
+                            {showTagMenu && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() => setShowTagMenu(false)}
+                                />
+                                <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg p-3 z-50">
+                                  <div className="flex gap-2 mb-3">
+                                    <input
+                                      type="text"
+                                      placeholder="Tag name..."
+                                      value={tagInput}
+                                      onChange={(e) =>
+                                        setTagInput(e.target.value)
+                                      }
+                                      onKeyDown={(e) => {
+                                        if (
+                                          e.key === "Enter" &&
+                                          tagInput.trim() &&
+                                          newTags.length < 4
+                                        ) {
+                                          e.preventDefault();
+                                          e.stopPropagation();
+                                          setNewTags([
+                                            ...newTags,
+                                            tagInput.trim(),
+                                          ]);
+                                          setTagInput("");
+                                        }
+                                      }}
+                                      className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
+                                    />
+                                  </div>
+                                  <div className="flex flex-wrap gap-1">
+                                    {newTags.map((tag, i) => (
+                                      <span
+                                        key={i}
+                                        className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] flex items-center gap-1"
+                                      >
+                                        {tag}
+                                        <button
+                                          onClick={() =>
+                                            setNewTags(
+                                              newTags.filter(
+                                                (_, index) => index !== i,
+                                              ),
+                                            )
+                                          }
+                                          className="hover:text-red-400"
+                                        >
+                                          ×
+                                        </button>
+                                      </span>
+                                    ))}
+                                    {newTags.length === 0 && (
+                                      <p className="text-[10px] text-[#6b7280]">
+                                        No tags added
+                                      </p>
+                                    )}
+                                  </div>
+                                </div>
+                              </>
+                            )}
+                          </div>
+
+                          <div className="relative">
+                            <button
+                              onClick={() =>
+                                setShowQuickAddProjectMenu(
+                                  !showQuickAddProjectMenu,
+                                )
+                              }
+                              className={`transition-colors px-1 flex items-center justify-center ${quickAddProjectId ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
+                              title="Assign project"
+                            >
+                              <svg
+                                xmlns="http://www.w3.org/2000/svg"
+                                width="18"
+                                height="18"
+                                viewBox="0 0 24 24"
+                                fill="none"
+                                stroke="currentColor"
+                                strokeWidth="2"
+                                strokeLinecap="round"
+                                strokeLinejoin="round"
+                              >
+                                <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
+                              </svg>
+                            </button>
+
+                            {showQuickAddProjectMenu && (
+                              <>
+                                <div
+                                  className="fixed inset-0 z-40"
+                                  onClick={() =>
+                                    setShowQuickAddProjectMenu(false)
+                                  }
+                                />
+                                <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50 overflow-hidden">
+                                  <button
+                                    onClick={() => {
+                                      setQuickAddProjectId(null);
+                                      setShowQuickAddProjectMenu(false);
+                                    }}
+                                    className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                  >
+                                    <span className="text-[#6b7280] w-3 text-center inline-block flex-shrink-0">
                                       ●
-                                    </span>
-                                  )}
-                                  {project.name}
-                                </button>
-                              ))}
+                                    </span>{" "}
+                                    Inbox
+                                  </button>
+                                  {projects
+                                    .filter(
+                                      (p) => !SMART_LISTS.includes(p.name),
+                                    )
+                                    .map((project) => (
+                                      <button
+                                        key={project.id}
+                                        onClick={() => {
+                                          setQuickAddProjectId(project.id);
+                                          setShowQuickAddProjectMenu(false);
+                                        }}
+                                        className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                                      >
+                                        {project.icon ? (
+                                          <span className="text-[10px] w-3 text-center inline-block flex-shrink-0">
+                                            {project.icon}
+                                          </span>
+                                        ) : (
+                                          <span
+                                            style={{ color: project.colour }}
+                                            className="w-3 text-center inline-block flex-shrink-0"
+                                          >
+                                            ●
+                                          </span>
+                                        )}
+                                        {project.name}
+                                      </button>
+                                    ))}
+                                </div>
+                              </>
+                            )}
                           </div>
-                        </>
-                      )}
-                    </div>
-                    <span className="text-xs text-[#3b82f6] font-medium">
-                      {(() => {
-                        if (!quickAddProjectId) return "";
-                        const p = projects.find(
-                          (p) => p.id === quickAddProjectId,
-                        );
-                        if (!p) return "";
-                        return p.icon ? `${p.icon} ${p.name}` : p.name;
-                      })()}
-                    </span>
-                  </div>
-
-                  <div className="flex items-center gap-2">
-                    <button
-                      onClick={() => {
-                        setIsAddingTask(false);
-                        setNewTaskTitle("");
-                        setSelectedDate(null);
-                      }}
-                      className="px-3 py-1 text-sm text-[#6b7280] hover:text-white"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      onClick={handleQuickAdd}
-                      disabled={!newTaskTitle.trim()}
-                      className="px-4 py-1 bg-[#3b82f6] text-white rounded text-sm font-medium disabled:opacity-50"
-                    >
-                      Add
-                    </button>
-                  </div>
-                </div>
-              </div>
-            )}
-          </div>
-        </div>
-
-        {/* Scrollable Task List */}
-        <div className="flex-1 p-6 overflow-auto">
-          <div className="max-w-4xl space-y-4">
-            {/* OPEN TASKS */}
-            {displayedTasks
-              .filter((t) => t.status !== "done")
-              .map((task) => {
-                const tz = getUserTz(profile);
-                const isOverdue = task.due_date
-                  ? isPastDateStr(task.due_date, tz)
-                  : false;
-                const dateLabel = task.due_date
-                  ? formatDateShortStr(task.due_date, tz)
-                  : null;
-                const depth = getTaskDepth(task);
-
-                return (
-                  <div
-                    key={task.id}
-                    onClick={() => setEditingTask(task)}
-                    style={{ marginLeft: `${depth * 28}px` }}
-                    className={`bg-[#1e2130] p-4 rounded-lg flex items-center gap-3 border-l-4 cursor-pointer hover:bg-[#252a38] transition-colors relative group/task ${
-                      task.priority === 5
-                        ? "border-red-500"
-                        : task.priority === 3
-                          ? "border-orange-500"
-                          : task.priority === 1
-                            ? "border-blue-500"
-                            : "border-transparent"
-                    }`}
-                  >
-                    <input
-                      type="checkbox"
-                      checked={task.status === "done"}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => {
-                        toggleTaskStatus(task.id, task.status);
-                      }}
-                      className="w-4 h-4 accent-[#22c55e] cursor-pointer"
-                    />
-
-                    <span
-                      className={`flex-1 ${task.status === "done" ? "line-through text-[#6b7280]" : ""}`}
-                    >
-                      {task.title}
-                    </span>
-
-                    {task.assigned_to && (
-                      <div
-                        className="flex-shrink-0 w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[8px] font-bold text-white border border-[#1e2130]"
-                        title={`Assigned to ${teamMembers.find((m) => m.id === task.assigned_to)?.first_name || "Member"}`}
-                      >
-                        {(teamMembers.find((m) => m.id === task.assigned_to)
-                          ?.first_name?.[0] || user.id === task.assigned_to
-                          ? profile?.first_name?.[0]
-                          : "U"
-                        )?.toUpperCase()}
-                      </div>
-                    )}
-
-                    {task.tags?.length > 0 && (
-                      <div className="flex gap-1 ml-auto mr-2">
-                        {task.tags.slice(0, 4).map((tag, i) => (
-                          <span
-                            key={i}
-                            className="text-[9px] px-1.5 py-0 rounded-full border border-[#374151] bg-[#1e2130] text-[#9ca3af]"
-                          >
-                            {tag}
+                          <span className="text-xs text-[#3b82f6] font-medium">
+                            {(() => {
+                              if (!quickAddProjectId) return "";
+                              const p = projects.find(
+                                (p) => p.id === quickAddProjectId,
+                              );
+                              if (!p) return "";
+                              return p.icon ? `${p.icon} ${p.name}` : p.name;
+                            })()}
                           </span>
-                        ))}
+                        </div>
+
+                        <div className="flex items-center gap-2">
+                          <button
+                            onClick={() => {
+                              setIsAddingTask(false);
+                              setNewTaskTitle("");
+                              setSelectedDate(null);
+                            }}
+                            className="px-3 py-1 text-sm text-[#6b7280] hover:text-white"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            onClick={handleQuickAdd}
+                            disabled={!newTaskTitle.trim()}
+                            className="px-4 py-1 bg-[#3b82f6] text-white rounded text-sm font-medium disabled:opacity-50"
+                          >
+                            Add
+                          </button>
+                        </div>
                       </div>
-                    )}
-
-                    {dateLabel && (
-                      <span
-                        className={`text-[10px] font-medium px-2 py-0.5 rounded border whitespace-nowrap ${
-                          isOverdue
-                            ? "text-red-500 border-red-500/30 bg-red-500/10"
-                            : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/10"
-                        }`}
-                      >
-                        {dateLabel}
-                      </span>
-                    )}
-
-                    <div
-                      className="relative"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() =>
-                          setShowMenuForTask(
-                            showMenuForTask === task.id ? null : task.id,
-                          )
-                        }
-                        className="text-[#6b7280] hover:text-white px-2 py-1 text-lg leading-none"
-                      >
-                        ⋯
-                      </button>
-
-                      {showMenuForTask === task.id && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowMenuForTask(null)}
-                          />
-                          <div className="absolute right-0 mt-1 w-40 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
-                            <button
-                              onClick={async () => {
-                                const { error } = await supabase
-                                  .from("tasks")
-                                  .update({ is_deleted: true })
-                                  .eq("id", task.id)
-                                  .select()
-                                  .single();
-
-                                if (!error) {
-                                  setTasks((prev) =>
-                                    prev.filter((t) => t.id !== task.id),
-                                  );
-                                } else {
-                                  alert(
-                                    "Failed to delete task. You may not have permission.",
-                                  );
-                                }
-                                setShowMenuForTask(null);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2 text-red-400"
-                            >
-                              🗑️ Delete
-                            </button>
-                          </div>
-                        </>
-                      )}
                     </div>
-                  </div>
-                );
-              })}
-
-            {/* COMPLETED TASKS SEPARATOR */}
-            {displayedTasks.some((t) => t.status === "done") && (
-              <div className="pt-8 pb-4">
-                <div className="flex items-center gap-4">
-                  <div className="h-px bg-[#1e2130] flex-1"></div>
-                  <span className="text-[10px] font-bold uppercase tracking-widest text-[#6b7280] whitespace-nowrap">
-                    Completed
-                  </span>
-                  <div className="h-px bg-[#1e2130] flex-1"></div>
+                  )}
                 </div>
               </div>
-            )}
 
-            {/* COMPLETED TASKS */}
-            {displayedTasks
-              .filter((t) => t.status === "done")
-              .map((task) => {
-                return (
-                  <div
-                    key={task.id}
-                    onClick={() => setEditingTask(task)}
-                    style={{ marginLeft: `${getTaskDepth(task) * 28}px` }}
-                    className="bg-[#1e2130]/40 p-4 rounded-lg flex items-center gap-3 border-l-4 border-transparent cursor-pointer hover:bg-[#1e2130] transition-colors relative opacity-60"
-                  >
-                    <input
-                      type="checkbox"
-                      checked={true}
-                      onClick={(e) => e.stopPropagation()}
-                      onChange={() => {
-                        toggleTaskStatus(task.id, task.status);
-                      }}
-                      className="w-4 h-4 accent-[#22c55e] cursor-pointer"
-                    />
+              {/* Scrollable Task List */}
+              <div className="flex-1 p-6 overflow-auto">
+                <div className="max-w-4xl space-y-4">
+                  {/* OPEN TASKS */}
+                  {displayedTasks
+                    .filter((t) => t.status !== "done")
+                    .map((task) => renderTaskNode(task, false))}
 
-                    <span className="flex-1 line-through text-[#6b7280]">
-                      {task.title}
-                    </span>
-
-                    <div
-                      className="relative"
-                      onClick={(e) => e.stopPropagation()}
-                    >
-                      <button
-                        onClick={() =>
-                          setShowMenuForTask(
-                            showMenuForTask === task.id ? null : task.id,
-                          )
-                        }
-                        className="text-[#6b7280] hover:text-white px-2 py-1 text-lg leading-none"
-                      >
-                        ⋯
-                      </button>
-
-                      {showMenuForTask === task.id && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-40"
-                            onClick={() => setShowMenuForTask(null)}
-                          />
-                          <div className="absolute right-0 mt-1 w-40 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
-                            <button
-                              onClick={async () => {
-                                const { error } = await supabase
-                                  .from("tasks")
-                                  .update({ is_deleted: true })
-                                  .eq("id", task.id)
-                                  .select()
-                                  .single();
-
-                                if (!error) {
-                                  setTasks((prev) =>
-                                    prev.filter((t) => t.id !== task.id),
-                                  );
-                                } else {
-                                  alert(
-                                    "Failed to delete task. You may not have permission.",
-                                  );
-                                }
-                                setShowMenuForTask(null);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2 text-red-400"
-                            >
-                              🗑️ Delete
-                            </button>
-                          </div>
-                        </>
-                      )}
+                  {/* COMPLETED TASKS SEPARATOR */}
+                  {displayedTasks.some((t) => t.status === "done") && (
+                    <div className="pt-8 pb-4">
+                      <div className="flex items-center gap-4">
+                        <div className="h-px bg-[#1e2130] flex-1"></div>
+                        <span className="text-[10px] font-bold uppercase tracking-widest text-[#6b7280] whitespace-nowrap">
+                          Completed
+                        </span>
+                        <div className="h-px bg-[#1e2130] flex-1"></div>
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  )}
 
-            {displayedTasks.length === 0 && (
-              <p className="text-[#6b7280]">No tasks in this view.</p>
-            )}
-          </div>
-        </div>
+                  {/* COMPLETED TASKS */}
+                  {displayedTasks
+                    .filter((t) => t.status === "done")
+                    .map((task) => renderTaskNode(task, false))}
+
+                  {displayedTasks.length === 0 && (
+                    <p className="text-[#6b7280]">No tasks in this view.</p>
+                  )}
+                </div>
+              </div>
+            </>
+          );
+        })()}
       </div>
 
       {/* User Profile Edit Modal */}
@@ -2084,7 +2347,7 @@ export default function TaskManager() {
                     <div className="w-12 h-12 rounded-full bg-[#3b82f6] flex items-center justify-center text-white font-bold">
                       {(
                         editProfileFirstName?.[0] ||
-                        user.email?.[0] ||
+                        user?.email?.[0] ||
                         "U"
                       ).toUpperCase()}
                     </div>
@@ -2137,7 +2400,7 @@ export default function TaskManager() {
                         <span className="text-sm text-white font-medium">
                           {currentTeam?.name || "Joined Team"}
                         </span>
-                        {currentTeam?.admin_id === user.id ? (
+                        {currentTeam?.admin_id === user?.id ? (
                           <div className="flex items-center gap-2">
                             <span className="text-[10px] bg-orange-500/20 text-orange-500 px-2 py-0.5 rounded-full uppercase tracking-wider font-bold">
                               Admin
@@ -2180,7 +2443,7 @@ export default function TaskManager() {
                           </div>
                         )}
                       </div>
-                      {currentTeam?.admin_id === user.id && (
+                      {currentTeam?.admin_id === user?.id && (
                         <button
                           type="button"
                           onClick={() => setShowAddMemberModal(true)}
@@ -2196,8 +2459,8 @@ export default function TaskManager() {
                             className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1e2130] border border-[#374151] text-[11px] text-white"
                           >
                             <span>{member.first_name || "User"}</span>
-                            {currentTeam?.admin_id === user.id &&
-                              member.id !== user.id && (
+                            {currentTeam?.admin_id === user?.id &&
+                              member.id !== user?.id && (
                                 <button
                                   type="button"
                                   onClick={() => setMemberToRemove(member)}
@@ -2383,41 +2646,30 @@ export default function TaskManager() {
         <div className="fixed inset-0 z-50 flex justify-end">
           <div
             className="absolute inset-0 bg-black/50"
-            onClick={async () => {
-              const currentContent = editor?.getHTML() || editingTask.content;
-              const { error } = await supabase
-                .from("tasks")
-                .update({
-                  title: editingTask.title,
-                  content: currentContent || null,
-                  due_date: editingTask.due_date,
-                  priority: editingTask.priority,
-                  tags: editingTask.tags,
-                  assigned_to: editingTask.assigned_to,
-                  project_id: editingTask.project_id,
-                })
-                .eq("id", editingTask.id)
-                .select()
-                .single();
-
-              if (!error) {
-                setTasks((prev) =>
-                  prev.map((t) =>
-                    t.id === editingTask.id
-                      ? { ...editingTask, content: currentContent }
-                      : t,
-                  ),
-                );
-              } else {
-                alert("Failed to save changes. You may not have permission.");
-              }
-              setEditingTask(null);
-            }}
+            onClick={handleSaveEditedTask}
           />
 
           <div
             className="relative bg-[#1e2130] h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-[#374151]"
             style={{ width: `${editPanelWidth}px`, minWidth: "380px" }}
+            onKeyDown={(e) => {
+              if (e.key === "Enter" && !e.shiftKey) {
+                const target = e.target as HTMLElement;
+                // Ignore if in TipTap editor
+                if (target.closest(".tiptap-editor")) return;
+                // Allow tag input to process Enter independently
+                if (
+                  target.tagName === "INPUT" &&
+                  target.getAttribute("placeholder") === "Tag name..."
+                )
+                  return;
+                // Ignore if in a button (let the button handle it)
+                if (target.tagName === "BUTTON") return;
+
+                e.preventDefault();
+                handleSaveEditedTask();
+              }
+            }}
           >
             <div
               className="absolute left-0 top-0 h-full w-1 cursor-col-resize bg-transparent hover:bg-[#3b82f6] transition-colors z-10"
@@ -3039,54 +3291,7 @@ export default function TaskManager() {
                 Cancel
               </button>
               <button
-                onClick={async () => {
-                  const currentContent =
-                    editor?.getHTML() || editingTask.content;
-
-                  const activeProject = projects.find(
-                    (p) => p.id === editingTask.project_id,
-                  );
-                  const finalTeamId = activeProject?.team_id || null;
-                  const finalAssignedTo = finalTeamId
-                    ? editingTask.assigned_to
-                    : null;
-
-                  const { error } = await supabase
-                    .from("tasks")
-                    .update({
-                      title: editingTask.title,
-                      content: currentContent || null,
-                      due_date: editingTask.due_date,
-                      priority: editingTask.priority,
-                      tags: editingTask.tags,
-                      assigned_to: finalAssignedTo,
-                      project_id: editingTask.project_id,
-                      team_id: finalTeamId,
-                    })
-                    .eq("id", editingTask.id)
-                    .select()
-                    .single();
-
-                  if (!error) {
-                    setTasks((prev) =>
-                      prev.map((t) =>
-                        t.id === editingTask.id
-                          ? {
-                              ...editingTask,
-                              content: currentContent,
-                              team_id: finalTeamId,
-                              assigned_to: finalAssignedTo,
-                            }
-                          : t,
-                      ),
-                    );
-                  } else {
-                    alert(
-                      "Failed to save changes. You may not have permission.",
-                    );
-                  }
-                  setEditingTask(null);
-                }}
+                onClick={handleSaveEditedTask}
                 className="flex-1 py-3 bg-[#3b82f6] text-white rounded-lg font-medium text-sm"
               >
                 Save
