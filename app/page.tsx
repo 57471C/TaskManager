@@ -14,6 +14,7 @@ type Project = {
   id: string;
   name: string;
   colour: string;
+  icon?: string | null;
   user_id?: string;
   team_id?: string | null;
 };
@@ -71,6 +72,48 @@ const TIMEZONES = [
   { value: "Australia/Brisbane", label: "(GMT+10:00) Brisbane" },
   { value: "Australia/Sydney", label: "(GMT+10:00) Sydney, Melbourne" },
   { value: "Pacific/Auckland", label: "(GMT+12:00) Auckland" },
+];
+
+const PROJECT_COLORS = [
+  "#ef4444",
+  "#f97316",
+  "#eab308",
+  "#22c55e",
+  "#3b82f6",
+  "#6366f1",
+  "#a855f7",
+  "#d946ef",
+  "#f43f5e",
+  "#14b8a6",
+  "#84cc16",
+  "#64748b",
+];
+
+const PROJECT_ICONS = [
+  "💼",
+  "🏠",
+  "🎓",
+  "🚀",
+  "💻",
+  "🎨",
+  "📝",
+  "🛒",
+  "🏋️",
+  "✈️",
+  "🍔",
+  "🐶",
+  "💡",
+  "🔧",
+  "📅",
+  "🎯",
+  "⭐",
+  "🔥",
+  "❤️",
+  "✅",
+  "🎵",
+  "📷",
+  "🎮",
+  "⚽",
 ];
 
 const SMART_LISTS = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
@@ -172,6 +215,9 @@ export default function TaskManager() {
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
   const [shareProjectWithTeam, setShareProjectWithTeam] = useState(false);
+  const [showProjectIconMenu, setShowProjectIconMenu] = useState<string | null>(
+    null,
+  );
 
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
@@ -608,6 +654,34 @@ export default function TaskManager() {
     return counts;
   }, [tasks]);
 
+  const updateProjectAppearance = async (
+    projectId: string,
+    updates: { colour?: string; icon?: string | null },
+  ) => {
+    const { data, error } = await supabase
+      .from("projects")
+      .update(updates)
+      .eq("id", projectId)
+      .select()
+      .single();
+
+    if (!error && data) {
+      setProjects((prev) => prev.map((p) => (p.id === projectId ? data : p)));
+    } else if (error) {
+      if (
+        error.message.includes(
+          'column "icon" of relation "projects" does not exist',
+        )
+      ) {
+        alert(
+          "Please add an 'icon' column (type: text) to your 'projects' table in Supabase.",
+        );
+      } else {
+        alert(`Failed to update project appearance: ${error.message}`);
+      }
+    }
+  };
+
   const handleAddProject = async () => {
     if (!projectInput.trim() || !user) return;
     const { data, error } = await supabase
@@ -860,6 +934,89 @@ export default function TaskManager() {
   const sharedProjects = projects.filter(
     (p) => p.team_id && !SMART_LISTS.includes(p.name),
   );
+
+  const renderProjectList = (projectList: Project[]) => {
+    return projectList.map((project) => (
+      <div key={project.id} className="relative group/project">
+        <button
+          onClick={() => setSelectedList(project.id)}
+          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
+            selectedList === project.id
+              ? "bg-[#1e2130] text-white"
+              : "hover:bg-[#1e2130]"
+          }`}
+        >
+          <div
+            onClick={(e) => {
+              e.stopPropagation();
+              setShowProjectIconMenu(
+                showProjectIconMenu === project.id ? null : project.id,
+              );
+            }}
+            className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer"
+            title="Change icon or color"
+          >
+            {project.icon ? (
+              <span className="text-xs">{project.icon}</span>
+            ) : (
+              <div
+                className="w-2 h-2 rounded-full"
+                style={{ backgroundColor: project.colour }}
+              />
+            )}
+          </div>
+          <span className="truncate">{project.name}</span>
+        </button>
+
+        {showProjectIconMenu === project.id && (
+          <>
+            <div
+              className="fixed inset-0 z-40"
+              onClick={() => setShowProjectIconMenu(null)}
+            />
+            <div className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200">
+              <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
+                Colors
+              </p>
+              <div className="flex flex-wrap gap-2 mb-4">
+                {PROJECT_COLORS.map((color) => (
+                  <button
+                    key={color}
+                    onClick={() => {
+                      updateProjectAppearance(project.id, {
+                        colour: color,
+                        icon: null,
+                      });
+                      setShowProjectIconMenu(null);
+                    }}
+                    className={`w-5 h-5 rounded-full border-2 transition-transform hover:scale-110 ${project.colour === color && !project.icon ? "border-white" : "border-transparent"}`}
+                    style={{ backgroundColor: color }}
+                  />
+                ))}
+              </div>
+              <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
+                Icons
+              </p>
+              <div className="grid grid-cols-6 gap-2">
+                {PROJECT_ICONS.map((icon) => (
+                  <button
+                    key={icon}
+                    onClick={() => {
+                      updateProjectAppearance(project.id, { icon });
+                      setShowProjectIconMenu(null);
+                    }}
+                    className={`flex items-center justify-center w-7 h-7 rounded hover:bg-[#374151] transition-colors text-sm ${project.icon === icon ? "bg-[#374151]" : ""}`}
+                  >
+                    {icon}
+                  </button>
+                ))}
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    ));
+  };
 
   if (authLoading)
     return (
@@ -1154,10 +1311,20 @@ export default function TaskManager() {
                               className="flex items-center justify-between group px-2 py-1.5 hover:bg-[#374151] rounded transition-colors"
                             >
                               <div className="flex items-center gap-2">
-                                <div
-                                  className="w-2 h-2 rounded-full"
-                                  style={{ backgroundColor: project.colour }}
-                                />
+                                <div className="w-4 h-4 flex items-center justify-center">
+                                  {project.icon ? (
+                                    <span className="text-[10px]">
+                                      {project.icon}
+                                    </span>
+                                  ) : (
+                                    <div
+                                      className="w-2 h-2 rounded-full"
+                                      style={{
+                                        backgroundColor: project.colour,
+                                      }}
+                                    />
+                                  )}
+                                </div>
                                 <span className="text-xs">{project.name}</span>
                               </div>
                               {canDelete && (
@@ -1179,25 +1346,7 @@ export default function TaskManager() {
               )}
             </div>
           </div>
-          <div className="space-y-1">
-            {personalProjects.map((project) => (
-              <button
-                key={project.id}
-                onClick={() => setSelectedList(project.id)}
-                className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
-                  selectedList === project.id
-                    ? "bg-[#1e2130] text-white"
-                    : "hover:bg-[#1e2130]"
-                }`}
-              >
-                <div
-                  className="w-2 h-2 rounded-full"
-                  style={{ backgroundColor: project.colour }}
-                />
-                {project.name}
-              </button>
-            ))}
-          </div>
+          <div className="space-y-1">{renderProjectList(personalProjects)}</div>
 
           {sharedProjects.length > 0 && (
             <div className="mt-6">
@@ -1205,23 +1354,7 @@ export default function TaskManager() {
                 Shared Projects
               </p>
               <div className="space-y-1">
-                {sharedProjects.map((project) => (
-                  <button
-                    key={project.id}
-                    onClick={() => setSelectedList(project.id)}
-                    className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
-                      selectedList === project.id
-                        ? "bg-[#1e2130] text-white"
-                        : "hover:bg-[#1e2130]"
-                    }`}
-                  >
-                    <div
-                      className="w-2 h-2 rounded-full"
-                      style={{ backgroundColor: project.colour }}
-                    />
-                    {project.name}
-                  </button>
-                ))}
+                {renderProjectList(sharedProjects)}
               </div>
             </div>
           )}
@@ -1579,7 +1712,10 @@ export default function TaskManager() {
                               }}
                               className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                             >
-                              <span className="text-[#6b7280]">●</span> Inbox
+                              <span className="text-[#6b7280] w-3 text-center inline-block flex-shrink-0">
+                                ●
+                              </span>{" "}
+                              Inbox
                             </button>
                             {projects
                               .filter((p) => !SMART_LISTS.includes(p.name))
@@ -1592,9 +1728,18 @@ export default function TaskManager() {
                                   }}
                                   className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                                 >
-                                  <span style={{ color: project.colour }}>
-                                    ●
-                                  </span>
+                                  {project.icon ? (
+                                    <span className="text-[10px] w-3 text-center inline-block flex-shrink-0">
+                                      {project.icon}
+                                    </span>
+                                  ) : (
+                                    <span
+                                      style={{ color: project.colour }}
+                                      className="w-3 text-center inline-block flex-shrink-0"
+                                    >
+                                      ●
+                                    </span>
+                                  )}
                                   {project.name}
                                 </button>
                               ))}
@@ -1605,10 +1750,11 @@ export default function TaskManager() {
                     <span className="text-xs text-[#3b82f6] font-medium">
                       {(() => {
                         if (!quickAddProjectId) return "";
-                        return (
-                          projects.find((p) => p.id === quickAddProjectId)
-                            ?.name || ""
+                        const p = projects.find(
+                          (p) => p.id === quickAddProjectId,
                         );
+                        if (!p) return "";
+                        return p.icon ? `${p.icon} ${p.name}` : p.name;
                       })()}
                     </span>
                   </div>
@@ -2731,7 +2877,10 @@ export default function TaskManager() {
                           }}
                           className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                         >
-                          <span className="text-[#6b7280]">●</span> Inbox
+                          <span className="text-[#6b7280] w-3 text-center inline-block flex-shrink-0">
+                            ●
+                          </span>{" "}
+                          Inbox
                         </button>
                         {projects
                           .filter((p) => !SMART_LISTS.includes(p.name))
@@ -2747,7 +2896,18 @@ export default function TaskManager() {
                               }}
                               className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                             >
-                              <span style={{ color: project.colour }}>●</span>
+                              {project.icon ? (
+                                <span className="text-[10px] w-3 text-center inline-block flex-shrink-0">
+                                  {project.icon}
+                                </span>
+                              ) : (
+                                <span
+                                  style={{ color: project.colour }}
+                                  className="w-3 text-center inline-block flex-shrink-0"
+                                >
+                                  ●
+                                </span>
+                              )}
                               {project.name}
                             </button>
                           ))}
