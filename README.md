@@ -1,21 +1,23 @@
 # Task Manager
 
-A modern, dark-themed task management web application built for the QHSE Team at Triple M Holdings.
+A modern, dark-themed collaborative task management web application built for the QHSE Team at Triple M Holdings.
 
 ## Overview
 
-Task Manager is a custom productivity tool designed to replace and extend commercial solutions like TickTick. It provides a clean, efficient interface for managing daily tasks, projects, and priorities.
+Task Manager is a custom productivity tool designed to replace and extend commercial solutions like TickTick. It provides a clean, efficient interface for managing daily tasks, projects, team collaboration, and priorities.
 
 ## Key Features
 
-- Smart Lists (Inbox, Today, Next 7 Days, Assigned to Me)
-- Project management with color coding
-- Rich text task descriptions powered by TipTap
-- Priority levels (Low, Medium, High, None)
-- Due dates with overdue indicators
-- Tags and project assignment
-- Soft delete functionality
-- Real-time sync via Supabase
+- **Smart Lists:** Inbox, Today, Next 7 Days, Assigned to Me
+- **Team Collaboration:** Create teams, invite members, share projects, and assign tasks
+- **User Profiles:** Customizable profiles with avatars and sound preferences
+- **Project Management:** Organize tasks with custom color-coded projects
+- **Rich Text Tasks:** Detailed task descriptions powered by TipTap
+- **Sub-tasks:** Break down complex tasks into smaller sub-tasks
+- **Priorities & Due Dates:** Priority levels (None, Low, Medium, High) and due dates with overdue indicators
+- **Tags:** Tagging system for flexible organization
+- **Soft Delete:** Safe deletion functionality
+- **Real-time Sync:** Instant synchronization via Supabase
 
 ## Tech Stack
 
