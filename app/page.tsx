@@ -20,6 +20,7 @@ type Project = {
 
 interface ProfileSettings {
   sound_enabled?: boolean;
+  timezone?: string;
   [key: string]: unknown;
 }
 
@@ -56,6 +57,62 @@ const TIPTAP_EXTENSIONS = [
   }),
   Highlight,
 ];
+
+const TIMEZONES = [
+  { value: "UTC", label: "(GMT) UTC Default" },
+  { value: "America/Los_Angeles", label: "(GMT-08:00) Pacific Time" },
+  { value: "America/New_York", label: "(GMT-05:00) Eastern Time" },
+  { value: "Europe/London", label: "(GMT+00:00) London" },
+  { value: "Europe/Paris", label: "(GMT+01:00) Central Europe" },
+  { value: "Asia/Dubai", label: "(GMT+04:00) Dubai" },
+  { value: "Asia/Singapore", label: "(GMT+08:00) Singapore" },
+  { value: "Australia/Perth", label: "(GMT+08:00) Perth" },
+  { value: "Australia/Adelaide", label: "(GMT+09:30) Adelaide" },
+  { value: "Australia/Brisbane", label: "(GMT+10:00) Brisbane" },
+  { value: "Australia/Sydney", label: "(GMT+10:00) Sydney, Melbourne" },
+  { value: "Pacific/Auckland", label: "(GMT+12:00) Auckland" },
+];
+
+const SMART_LISTS = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
+
+const getUserTz = (profile: Profile | null) => {
+  return (
+    profile?.settings?.timezone ||
+    Intl.DateTimeFormat().resolvedOptions().timeZone ||
+    "UTC"
+  );
+};
+
+const getDateStrWithOffset = (tz: string, offsetDays: number) => {
+  const d = new Date(new Date().toLocaleString("en-US", { timeZone: tz }));
+  d.setDate(d.getDate() + offsetDays);
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, "0");
+  const day = String(d.getDate()).padStart(2, "0");
+  return `${y}-${m}-${day}`;
+};
+
+const isPastDateStr = (dateStr: string, tz: string) => {
+  if (!dateStr) return false;
+  const dateOnly = dateStr.split("T")[0];
+  const todayStr = getDateStrWithOffset(tz, 0);
+  return dateOnly < todayStr;
+};
+
+const formatDateShortStr = (dateStr: string, tz: string) => {
+  if (!dateStr) return "";
+  const dateOnly = dateStr.split("T")[0];
+  const todayStr = getDateStrWithOffset(tz, 0);
+  if (dateOnly === todayStr) return "Today";
+  const tomorrowStr = getDateStrWithOffset(tz, 1);
+  if (dateOnly === tomorrowStr) return "Tomorrow";
+
+  const parts = dateOnly.split("-");
+  if (parts.length === 3) {
+    return `${parts[2]}/${parts[1]}/${parts[0].slice(2)}`;
+  }
+  return dateOnly;
+};
 
 export default function TaskManager() {
   const [user, setUser] = useState<User | null>(null);
@@ -100,7 +157,7 @@ export default function TaskManager() {
   const [showPriorityMenu, setShowPriorityMenu] = useState(false);
   const [editPanelWidth, setEditPanelWidth] = useState(468);
   const [editingTask, setEditingTask] = useState<Task | null>(null);
-  const [selectedDate, setSelectedDate] = useState<Date | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string | null>(null);
   const [showDatePicker, setShowDatePicker] = useState(false);
   const [showEditDatePicker, setShowEditDatePicker] = useState(false);
   const [showEditPriorityMenu, setShowEditPriorityMenu] = useState(false);
@@ -612,6 +669,7 @@ export default function TaskManager() {
 
   // Smart filtering
   const displayedTasks = useMemo(() => {
+    const tz = getUserTz(profile);
     const lower = selectedList.toLowerCase().trim();
     const inboxProject = projects.find((p) => p.name.toLowerCase() === "inbox");
     const inboxId = inboxProject?.id || null;
@@ -624,18 +682,16 @@ export default function TaskManager() {
         return isMineOrAssignedToMe && hasNoProject;
       }
       if (lower === "today") {
-        const today = new Date().toISOString().split("T")[0];
-        return task.due_date && task.due_date.startsWith(today);
+        return task.due_date
+          ? task.due_date.split("T")[0] === getDateStrWithOffset(tz, 0)
+          : false;
       }
       if (lower === "next 7 days") {
-        const today = new Date();
-        today.setHours(0, 0, 0, 0);
-        const in7Days = new Date(today);
-        in7Days.setDate(today.getDate() + 7);
         if (!task.due_date) return false;
-        const due = new Date(task.due_date);
-        due.setHours(0, 0, 0, 0);
-        return due >= today && due <= in7Days;
+        const taskDate = task.due_date.split("T")[0];
+        const todayStr = getDateStrWithOffset(tz, 0);
+        const in7DaysStr = getDateStrWithOffset(tz, 7);
+        return taskDate >= todayStr && taskDate <= in7DaysStr;
       }
       if (lower === "assigned to me") {
         return task.assigned_to === user?.id;
@@ -666,7 +722,7 @@ export default function TaskManager() {
 
     flatten(null);
     return result;
-  }, [tasks, selectedList, projects, user?.id]);
+  }, [tasks, selectedList, projects, user?.id, profile]);
 
   // Assignment Notification Logic
   useEffect(() => {
@@ -688,7 +744,7 @@ export default function TaskManager() {
 
     // Determine project: Priority to the Quick Add picker, then the currently viewed list
     let finalProjectId = quickAddProjectId;
-    if (!finalProjectId && !smartLists.includes(selectedList)) {
+    if (!finalProjectId && !SMART_LISTS.includes(selectedList)) {
       finalProjectId = selectedList; // selectedList stores the project ID when viewing a project
     }
 
@@ -703,9 +759,7 @@ export default function TaskManager() {
         status: "todo",
         priority: selectedPriority,
         project_id: finalProjectId,
-        due_date: selectedDate
-          ? selectedDate.toISOString().split("T")[0]
-          : null,
+        due_date: selectedDate,
         tags: newTags,
         user_id: user?.id,
         team_id: finalTeamId,
@@ -792,14 +846,6 @@ export default function TaskManager() {
     }
   };
 
-  const isPastDate = (date: Date) => {
-    const today = new Date();
-    today.setHours(0, 0, 0, 0);
-    const d = new Date(date);
-    d.setHours(0, 0, 0, 0);
-    return d < today;
-  };
-
   const getTaskDepth = (task: Task) => {
     if (!task.parent_id) return 0;
     const parent = tasks.find((t) => t.id === task.parent_id);
@@ -807,27 +853,12 @@ export default function TaskManager() {
     return 2;
   };
 
-  const isTodayDate = (date: Date) => {
-    const today = new Date();
-    return date.toDateString() === today.toDateString();
-  };
-
-  const formatDateShort = (date: Date) => {
-    if (isTodayDate(date)) return "Today";
-    const d = date.getDate().toString().padStart(2, "0");
-    const m = (date.getMonth() + 1).toString().padStart(2, "0");
-    const y = date.getFullYear().toString().slice(-2);
-    return `${d}/${m}/${y}`;
-  };
-
-  const smartLists = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
-
   const personalProjects = projects.filter(
-    (p) => !p.team_id && !smartLists.includes(p.name),
+    (p) => !p.team_id && !SMART_LISTS.includes(p.name),
   );
 
   const sharedProjects = projects.filter(
-    (p) => p.team_id && !smartLists.includes(p.name),
+    (p) => p.team_id && !SMART_LISTS.includes(p.name),
   );
 
   if (authLoading)
@@ -1029,7 +1060,7 @@ export default function TaskManager() {
             Smart Lists
           </p>
           <div className="space-y-1">
-            {smartLists.map((list) => (
+            {SMART_LISTS.map((list) => (
               <button
                 key={list}
                 onClick={() => setSelectedList(list)}
@@ -1107,7 +1138,9 @@ export default function TaskManager() {
                     </button>
                     <div className="space-y-1 max-h-48 overflow-auto">
                       {projects
-                        .filter((project) => !smartLists.includes(project.name))
+                        .filter(
+                          (project) => !SMART_LISTS.includes(project.name),
+                        )
                         .map((project) => {
                           const hasTasks =
                             (projectTaskCounts[project.id] || 0) > 0;
@@ -1229,7 +1262,7 @@ export default function TaskManager() {
                         onClick={() => setShowDatePicker(!showDatePicker)}
                         className={`transition-colors px-1 flex items-center justify-center ${
                           selectedDate
-                            ? isPastDate(selectedDate)
+                            ? isPastDateStr(selectedDate, getUserTz(profile))
                               ? "text-red-500"
                               : "text-[#3b82f6]"
                             : "text-[#6b7280] hover:text-white"
@@ -1271,31 +1304,33 @@ export default function TaskManager() {
                             <div className="px-2 pb-2 mb-2 border-b border-[#374151] grid grid-cols-1 gap-1">
                               <button
                                 onClick={() => {
-                                  setSelectedDate(new Date());
+                                  setSelectedDate(
+                                    getDateStrWithOffset(getUserTz(profile), 0),
+                                  );
                                   setShowDatePicker(false);
                                 }}
                                 className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
                               >
                                 <span>Today</span>
-                                <span className="text-[#6b7280]">Tue</span>
+                                <span className="text-[#6b7280]">0d</span>
                               </button>
                               <button
                                 onClick={() => {
-                                  const tomorrow = new Date();
-                                  tomorrow.setDate(tomorrow.getDate() + 1);
-                                  setSelectedDate(tomorrow);
+                                  setSelectedDate(
+                                    getDateStrWithOffset(getUserTz(profile), 1),
+                                  );
                                   setShowDatePicker(false);
                                 }}
                                 className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
                               >
                                 <span>Tomorrow</span>
-                                <span className="text-[#6b7280]">Wed</span>
+                                <span className="text-[#6b7280]">+1d</span>
                               </button>
                               <button
                                 onClick={() => {
-                                  const nextWeek = new Date();
-                                  nextWeek.setDate(nextWeek.getDate() + 7);
-                                  setSelectedDate(nextWeek);
+                                  setSelectedDate(
+                                    getDateStrWithOffset(getUserTz(profile), 7),
+                                  );
                                   setShowDatePicker(false);
                                 }}
                                 className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
@@ -1307,9 +1342,10 @@ export default function TaskManager() {
                             <div className="px-2">
                               <input
                                 type="date"
+                                value={selectedDate || ""}
                                 onChange={(e) => {
                                   if (e.target.value) {
-                                    setSelectedDate(new Date(e.target.value));
+                                    setSelectedDate(e.target.value);
                                     setShowDatePicker(false);
                                   }
                                 }}
@@ -1335,12 +1371,12 @@ export default function TaskManager() {
                     {selectedDate && (
                       <span
                         className={`text-xs font-medium ${
-                          isPastDate(selectedDate)
+                          isPastDateStr(selectedDate, getUserTz(profile))
                             ? "text-red-500"
                             : "text-[#3b82f6]"
                         }`}
                       >
-                        {formatDateShort(selectedDate)}
+                        {formatDateShortStr(selectedDate, getUserTz(profile))}
                       </span>
                     )}
 
@@ -1546,7 +1582,7 @@ export default function TaskManager() {
                               <span className="text-[#6b7280]">●</span> Inbox
                             </button>
                             {projects
-                              .filter((p) => !smartLists.includes(p.name))
+                              .filter((p) => !SMART_LISTS.includes(p.name))
                               .map((project) => (
                                 <button
                                   key={project.id}
@@ -1609,9 +1645,13 @@ export default function TaskManager() {
             {displayedTasks
               .filter((t) => t.status !== "done")
               .map((task) => {
-                const dateObj = task.due_date ? new Date(task.due_date) : null;
-                const isOverdue = dateObj ? isPastDate(dateObj) : false;
-                const dateLabel = dateObj ? formatDateShort(dateObj) : null;
+                const tz = getUserTz(profile);
+                const isOverdue = task.due_date
+                  ? isPastDateStr(task.due_date, tz)
+                  : false;
+                const dateLabel = task.due_date
+                  ? formatDateShortStr(task.due_date, tz)
+                  : null;
                 const depth = getTaskDepth(task);
 
                 return (
@@ -2032,6 +2072,57 @@ export default function TaskManager() {
                 <label className="text-xs font-medium text-[#6b7280] uppercase tracking-wider block">
                   Preferences
                 </label>
+                <div className="relative mb-3">
+                  <select
+                    value={
+                      profile?.settings?.timezone ||
+                      Intl.DateTimeFormat().resolvedOptions().timeZone ||
+                      "UTC"
+                    }
+                    onChange={async (e) => {
+                      if (!user || !profile) return;
+                      const currentSettings = profile.settings || {};
+                      const newValue = e.target.value;
+
+                      const { data, error } = await supabase
+                        .from("profiles")
+                        .update({
+                          settings: {
+                            ...currentSettings,
+                            timezone: newValue,
+                          },
+                        })
+                        .eq("id", user.id)
+                        .select()
+                        .single();
+
+                      if (!error && data) {
+                        setProfile(data);
+                      }
+                    }}
+                    className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-2.5 text-white focus:border-[#3b82f6] outline-none text-sm appearance-none"
+                  >
+                    {TIMEZONES.map((tz) => (
+                      <option key={tz.value} value={tz.value}>
+                        {tz.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className="absolute right-4 top-1/2 -translate-y-1/2 pointer-events-none text-[#6b7280]">
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="m6 9 6 6 6-6" />
+                    </svg>
+                  </div>
+                </div>
                 <div className="flex items-center justify-between p-3 bg-[#0f1117] border border-[#374151] rounded-lg">
                   <div className="flex items-center gap-3">
                     <div className="text-[#6b7280]">
@@ -2230,7 +2321,10 @@ export default function TaskManager() {
                     onClick={() => setShowEditDatePicker(!showEditDatePicker)}
                     className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
                       editingTask.due_date
-                        ? isPastDate(new Date(editingTask.due_date))
+                        ? isPastDateStr(
+                            editingTask.due_date,
+                            getUserTz(profile),
+                          )
                           ? "text-red-500 border-red-500/30 bg-red-500/5"
                           : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
                         : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
@@ -2253,7 +2347,10 @@ export default function TaskManager() {
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
                     {editingTask.due_date
-                      ? formatDateShort(new Date(editingTask.due_date))
+                      ? formatDateShortStr(
+                          editingTask.due_date,
+                          getUserTz(profile),
+                        )
                       : "No Date"}
                   </button>
 
@@ -2269,9 +2366,10 @@ export default function TaskManager() {
                             onClick={() => {
                               setEditingTask({
                                 ...editingTask,
-                                due_date: new Date()
-                                  .toISOString()
-                                  .split("T")[0],
+                                due_date: getDateStrWithOffset(
+                                  getUserTz(profile),
+                                  0,
+                                ),
                               });
                               setShowEditDatePicker(false);
                             }}
@@ -2281,11 +2379,12 @@ export default function TaskManager() {
                           </button>
                           <button
                             onClick={() => {
-                              const tomorrow = new Date();
-                              tomorrow.setDate(tomorrow.getDate() + 1);
                               setEditingTask({
                                 ...editingTask,
-                                due_date: tomorrow.toISOString().split("T")[0],
+                                due_date: getDateStrWithOffset(
+                                  getUserTz(profile),
+                                  1,
+                                ),
                               });
                               setShowEditDatePicker(false);
                             }}
@@ -2301,7 +2400,7 @@ export default function TaskManager() {
                             onChange={(e) => {
                               setEditingTask({
                                 ...editingTask,
-                                due_date: e.target.value,
+                                due_date: e.target.value || null,
                               });
                               setShowEditDatePicker(false);
                             }}
@@ -2635,7 +2734,7 @@ export default function TaskManager() {
                           <span className="text-[#6b7280]">●</span> Inbox
                         </button>
                         {projects
-                          .filter((p) => !smartLists.includes(p.name))
+                          .filter((p) => !SMART_LISTS.includes(p.name))
                           .map((project) => (
                             <button
                               key={project.id}
