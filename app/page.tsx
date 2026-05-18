@@ -1573,6 +1573,28 @@ export default function TaskManager() {
                     <div className="flex gap-2 mb-3">
                       <input
                         type="text"
+                        placeholder="New folder..."
+                        value={folderInput}
+                        onChange={(e) => setFolderInput(e.target.value)}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter") {
+                            e.preventDefault();
+                            handleAddFolder();
+                          }
+                        }}
+                        className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
+                      />
+                    </div>
+                    <button
+                      onClick={handleAddFolder}
+                      className="w-full mb-3 py-1.5 bg-[#374151] hover:bg-[#4b5563] text-white rounded text-[10px] font-bold uppercase transition-colors"
+                    >
+                      Create Folder
+                    </button>
+                    <div className="w-full h-px bg-[#374151] my-3" />
+                    <div className="flex gap-2 mb-3">
+                      <input
+                        type="text"
                         placeholder="New project..."
                         value={projectInput}
                         onChange={(e) => setProjectInput(e.target.value)}
@@ -1611,27 +1633,6 @@ export default function TaskManager() {
                       Create Project
                     </button>
                     <div className="w-full h-px bg-[#374151] my-3" />
-                    <div className="flex gap-2 mb-3">
-                      <input
-                        type="text"
-                        placeholder="New folder..."
-                        value={folderInput}
-                        onChange={(e) => setFolderInput(e.target.value)}
-                        onKeyDown={(e) => {
-                          if (e.key === "Enter") {
-                            e.preventDefault();
-                            handleAddFolder();
-                          }
-                        }}
-                        className="flex-1 bg-[#0f1117] border border-[#374151] rounded px-2 py-1.5 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
-                      />
-                    </div>
-                    <button
-                      onClick={handleAddFolder}
-                      className="w-full mb-3 py-1.5 bg-[#374151] hover:bg-[#4b5563] text-white rounded text-[10px] font-bold uppercase transition-colors"
-                    >
-                      Create Folder
-                    </button>
                     <div className="space-y-1 max-h-48 overflow-auto">
                       {projects
                         .filter(
@@ -1671,7 +1672,7 @@ export default function TaskManager() {
                                   onClick={() =>
                                     handleDeleteProject(project.id)
                                   }
-                                  className="text-[#6b7280] hover:text-red-400 opacity-0 group-hover:opacity-100 transition-opacity px-1"
+                                  className="text-[#6b7280] hover:text-red-400 transition-colors px-1 text-lg leading-none"
                                 >
                                   ×
                                 </button>
