@@ -1,6 +1,6 @@
 # Task Manager
 
-A modern, dark-themed collaborative task management web application built for the QHSE Team at Triple M Holdings.
+A modern, dark-themed collaborative task management web application.
 
 ## Overview
 
