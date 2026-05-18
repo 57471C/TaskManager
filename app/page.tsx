@@ -789,6 +789,32 @@ export default function TaskManager() {
     }
   };
 
+  const handleDeleteFolder = async (folderId: string) => {
+    const folder = folders.find((f) => f.id === folderId);
+    if (!folder) return;
+
+    const hasProjects = projects.some((p) => p.folder_id === folderId);
+    if (hasProjects) {
+      alert("Cannot delete a folder that contains projects.");
+      return;
+    }
+    if (folder.team_id && currentTeam?.admin_id !== user?.id) {
+      alert("Only the team admin can delete shared folders.");
+      return;
+    }
+
+    const { error } = await supabase
+      .from("project_folders")
+      .delete()
+      .eq("id", folderId);
+    if (!error) {
+      if (selectedList === folderId) setSelectedList("Inbox");
+      setFolders((prev) => prev.filter((f) => f.id !== folderId));
+    } else {
+      alert(error.message);
+    }
+  };
+
   // Smart filtering
   const displayedTasks = useMemo(() => {
     const tz = getUserTz(profile);
@@ -1633,7 +1659,55 @@ export default function TaskManager() {
                       Create Project
                     </button>
                     <div className="w-full h-px bg-[#374151] my-3" />
-                    <div className="space-y-1 max-h-48 overflow-auto">
+                    <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
+                      {folders.map((folder) => {
+                        const hasProjects = projects.some(
+                          (p) => p.folder_id === folder.id,
+                        );
+                        const isShared = !!folder.team_id;
+                        const canDelete =
+                          !hasProjects &&
+                          (!isShared || currentTeam?.admin_id === user?.id);
+                        return (
+                          <div
+                            key={`folder-${folder.id}`}
+                            className="flex items-center gap-2 group px-2 py-1.5 hover:bg-[#374151] rounded transition-colors"
+                          >
+                            {canDelete ? (
+                              <button
+                                onClick={() => handleDeleteFolder(folder.id)}
+                                className="text-[#6b7280] hover:text-red-400 transition-colors flex-shrink-0"
+                                title="Delete Folder"
+                              >
+                                <svg
+                                  width="14"
+                                  height="14"
+                                  viewBox="0 0 24 24"
+                                  fill="none"
+                                  stroke="currentColor"
+                                  strokeWidth="2"
+                                  strokeLinecap="round"
+                                  strokeLinejoin="round"
+                                >
+                                  <path d="M3 6h18" />
+                                  <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                  <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                </svg>
+                              </button>
+                            ) : (
+                              <div className="w-[14px] h-[14px] flex-shrink-0" />
+                            )}
+                            <div className="flex items-center gap-2 min-w-0 flex-1">
+                              <span className="text-[10px] flex-shrink-0">
+                                📁
+                              </span>
+                              <span className="text-xs truncate">
+                                {folder.name}
+                              </span>
+                            </div>
+                          </div>
+                        );
+                      })}
                       {projects
                         .filter(
                           (project) => !SMART_LISTS.includes(project.name),
@@ -1647,11 +1721,37 @@ export default function TaskManager() {
                             (!isShared || currentTeam?.admin_id === user?.id);
                           return (
                             <div
-                              key={project.id}
-                              className="flex items-center justify-between group px-2 py-1.5 hover:bg-[#374151] rounded transition-colors"
+                              key={`project-${project.id}`}
+                              className="flex items-center gap-2 group px-2 py-1.5 hover:bg-[#374151] rounded transition-colors"
                             >
-                              <div className="flex items-center gap-2">
-                                <div className="w-4 h-4 flex items-center justify-center">
+                              {canDelete ? (
+                                <button
+                                  onClick={() =>
+                                    handleDeleteProject(project.id)
+                                  }
+                                  className="text-[#6b7280] hover:text-red-400 transition-colors flex-shrink-0"
+                                  title="Delete Project"
+                                >
+                                  <svg
+                                    width="14"
+                                    height="14"
+                                    viewBox="0 0 24 24"
+                                    fill="none"
+                                    stroke="currentColor"
+                                    strokeWidth="2"
+                                    strokeLinecap="round"
+                                    strokeLinejoin="round"
+                                  >
+                                    <path d="M3 6h18" />
+                                    <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                    <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
+                                  </svg>
+                                </button>
+                              ) : (
+                                <div className="w-[14px] h-[14px] flex-shrink-0" />
+                              )}
+                              <div className="flex items-center gap-2 min-w-0 flex-1">
+                                <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
                                   {project.icon ? (
                                     <span className="text-[10px]">
                                       {project.icon}
@@ -1665,18 +1765,10 @@ export default function TaskManager() {
                                     />
                                   )}
                                 </div>
-                                <span className="text-xs">{project.name}</span>
+                                <span className="text-xs truncate">
+                                  {project.name}
+                                </span>
                               </div>
-                              {canDelete && (
-                                <button
-                                  onClick={() =>
-                                    handleDeleteProject(project.id)
-                                  }
-                                  className="text-[#6b7280] hover:text-red-400 transition-colors px-1 text-lg leading-none"
-                                >
-                                  ×
-                                </button>
-                              )}
                             </div>
                           );
                         })}
