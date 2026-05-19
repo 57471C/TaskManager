@@ -1996,6 +1996,16 @@ export default function TaskManager() {
           font-weight: 600;
           margin-top: 1rem;
         }
+
+        /* Make the native date picker icon interactive and easier to see */
+        input[type="date"]::-webkit-calendar-picker-indicator {
+          cursor: pointer;
+          opacity: 0.6;
+          transition: opacity 0.2s;
+        }
+        input[type="date"]::-webkit-calendar-picker-indicator:hover {
+          opacity: 1;
+        }
       `}</style>
 
       {/* Sidebar */}
@@ -2614,6 +2624,7 @@ export default function TaskManager() {
                                           setShowDatePicker(false);
                                         }
                                       }}
+                                      style={{ colorScheme: "dark" }}
                                       className="w-full bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
                                     />
                                   </div>
@@ -3538,6 +3549,7 @@ export default function TaskManager() {
                               });
                               setShowEditDatePicker(false);
                             }}
+                            style={{ colorScheme: "dark" }}
                             className="w-full bg-[#0f1117] border border-[#374151] rounded px-2 py-1 text-xs text-white focus:outline-none focus:border-[#3b82f6]"
                           />
                         </div>
