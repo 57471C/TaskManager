@@ -18,6 +18,7 @@ type Project = {
   user_id?: string;
   team_id?: string | null;
   folder_id?: string | null;
+  sort_order?: number;
 };
 
 type ProjectFolder = {
@@ -226,6 +227,10 @@ export default function TaskManager() {
   const [projectInput, setProjectInput] = useState("");
   const [shareProjectWithTeam, setShareProjectWithTeam] = useState(false);
   const [showProjectIconMenu, setShowProjectIconMenu] = useState<string | null>(
+    null,
+  );
+  const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(
     null,
   );
 
@@ -588,6 +593,7 @@ export default function TaskManager() {
         .or(
           `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
         )
+        .order("sort_order", { ascending: true })
         .order("name");
 
       setProjects(data || []);
@@ -708,6 +714,11 @@ export default function TaskManager() {
 
   const handleAddProject = async () => {
     if (!projectInput.trim() || !user) return;
+    const nextSortOrder =
+      projects.length > 0
+        ? Math.max(...projects.map((p) => p.sort_order || 0)) + 1
+        : 0;
+
     const { data, error } = await supabase
       .from("projects")
       .insert({
@@ -715,6 +726,7 @@ export default function TaskManager() {
         colour: "#3b82f6",
         user_id: user.id,
         team_id: shareProjectWithTeam ? currentTeam?.id : null,
+        sort_order: nextSortOrder,
       })
       .select()
       .single();
@@ -726,9 +738,7 @@ export default function TaskManager() {
     }
 
     if (data) {
-      setProjects((prev) =>
-        [...prev, data].sort((a, b) => a.name.localeCompare(b.name)),
-      );
+      setProjects((prev) => [...prev, data]);
       setProjectInput("");
       setShareProjectWithTeam(false);
       setShowProjectMenu(false); // Close menu on success
@@ -813,6 +823,70 @@ export default function TaskManager() {
     } else {
       alert(error.message);
     }
+  };
+
+  const handleProjectDrop = async (targetId: string) => {
+    if (!draggedProjectId || draggedProjectId === targetId) return;
+
+    const sourceIndex = projects.findIndex((p) => p.id === draggedProjectId);
+    const targetIndex = projects.findIndex((p) => p.id === targetId);
+
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const targetProject = projects[targetIndex];
+
+    const newFolderId = targetProject.folder_id;
+
+    const newProjects = [...projects];
+    const [removed] = newProjects.splice(sourceIndex, 1);
+    removed.folder_id = newFolderId;
+    newProjects.splice(targetIndex, 0, removed);
+
+    const updatedProjects = newProjects.map((p, index) => ({
+      ...p,
+      sort_order: index,
+    }));
+
+    setProjects(updatedProjects);
+    setDraggedProjectId(null);
+
+    Promise.all(
+      updatedProjects.map((p) =>
+        supabase
+          .from("projects")
+          .update({ sort_order: p.sort_order, folder_id: p.folder_id })
+          .eq("id", p.id),
+      ),
+    ).catch((err) => console.error("Failed to save sort order", err));
+  };
+
+  const handleFolderDrop = async (folderId: string) => {
+    if (!draggedProjectId) return;
+
+    const sourceIndex = projects.findIndex((p) => p.id === draggedProjectId);
+    if (sourceIndex === -1) return;
+
+    const newProjects = [...projects];
+    const [removed] = newProjects.splice(sourceIndex, 1);
+    removed.folder_id = folderId;
+    newProjects.push(removed);
+
+    const updatedProjects = newProjects.map((p, index) => ({
+      ...p,
+      sort_order: index,
+    }));
+
+    setProjects(updatedProjects);
+    setDraggedProjectId(null);
+
+    Promise.all(
+      updatedProjects.map((p) =>
+        supabase
+          .from("projects")
+          .update({ sort_order: p.sort_order, folder_id: p.folder_id })
+          .eq("id", p.id),
+      ),
+    ).catch((err) => console.error("Failed to save folder drop", err));
   };
 
   // Smart filtering
@@ -1103,7 +1177,22 @@ export default function TaskManager() {
           <div key={folder.id} className="mb-3">
             <button
               onClick={() => setSelectedList(folder.id)}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 ${
+              onDragOver={(e) => {
+                e.preventDefault();
+                e.dataTransfer.dropEffect = "move";
+                if (draggedProjectId) setDragOverProjectId(folder.id);
+              }}
+              onDragLeave={() => setDragOverProjectId(null)}
+              onDrop={(e) => {
+                e.preventDefault();
+                setDragOverProjectId(null);
+                handleFolderDrop(folder.id);
+              }}
+              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border-2 ${
+                dragOverProjectId === folder.id
+                  ? "border-[#3b82f6]"
+                  : "border-transparent"
+              } ${
                 selectedList === folder.id
                   ? "bg-[#1e2130] text-white"
                   : "text-[#9ca3af] hover:bg-[#1e2130] hover:text-white"
@@ -1125,13 +1214,37 @@ export default function TaskManager() {
   };
 
   const renderSingleProject = (project: Project) => (
-    <div key={project.id} className="relative group/project">
+    <div
+      key={project.id}
+      className={`relative group/project flex items-center pr-2 rounded-lg transition-colors border-2 ${
+        dragOverProjectId === project.id
+          ? "border-[#3b82f6]"
+          : "border-transparent"
+      } ${selectedList === project.id ? "bg-[#1e2130]" : "hover:bg-[#1e2130]"}`}
+      draggable
+      onDragStart={(e) => {
+        setDraggedProjectId(project.id);
+        e.dataTransfer.effectAllowed = "move";
+        e.dataTransfer.setData("text/plain", project.id);
+      }}
+      onDragOver={(e) => {
+        e.preventDefault();
+        e.dataTransfer.dropEffect = "move";
+        if (draggedProjectId && draggedProjectId !== project.id) {
+          setDragOverProjectId(project.id);
+        }
+      }}
+      onDragLeave={() => setDragOverProjectId(null)}
+      onDrop={(e) => {
+        e.preventDefault();
+        setDragOverProjectId(null);
+        handleProjectDrop(project.id);
+      }}
+    >
       <button
         onClick={() => setSelectedList(project.id)}
-        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors flex items-center gap-2 ${
-          selectedList === project.id
-            ? "bg-[#1e2130] text-white"
-            : "hover:bg-[#1e2130]"
+        className={`flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 min-w-0 ${
+          selectedList === project.id ? "text-white" : ""
         }`}
       >
         <div
@@ -1141,7 +1254,7 @@ export default function TaskManager() {
               showProjectIconMenu === project.id ? null : project.id,
             );
           }}
-          className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer"
+          className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer flex-shrink-0"
           title="Change icon or color"
         >
           {project.icon ? (
@@ -1156,13 +1269,37 @@ export default function TaskManager() {
         <span className="truncate">{project.name}</span>
       </button>
 
+      <div className="opacity-0 group-hover/project:opacity-50 hover:!opacity-100 cursor-grab active:cursor-grabbing text-[#6b7280] flex-shrink-0 ml-1 px-1">
+        <svg
+          width="14"
+          height="14"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </div>
+
       {showProjectIconMenu === project.id && (
         <>
           <div
             className="fixed inset-0 z-40"
             onClick={() => setShowProjectIconMenu(null)}
           />
-          <div className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200">
+          <div
+            draggable={true}
+            onDragStart={(e) => {
+              e.preventDefault();
+              e.stopPropagation();
+            }}
+            className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200 cursor-default"
+          >
             <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
               Colors
             </p>
