@@ -3400,6 +3400,22 @@ export default function TaskManager() {
                 </div>
               </div>
 
+              {/* Sub-task Section */}
+              {getTaskDepth(editingTask) < 2 && (
+                <div>
+                  <label className="text-sm text-[#6b7280] block mb-2">
+                    SUB-TASKS
+                  </label>
+                  <button
+                    onClick={() => handleAddSubtask(editingTask.id)}
+                    className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    <span>Create sub-task</span>
+                  </button>
+                </div>
+              )}
+
               <div>
                 <label className="block text-sm text-[#6b7280] mb-2">
                   DESCRIPTION
@@ -3496,22 +3512,6 @@ export default function TaskManager() {
                   </div>
                 </div>
               </div>
-
-              {/* Sub-task Section */}
-              {getTaskDepth(editingTask) < 2 && (
-                <div>
-                  <label className="text-sm text-[#6b7280] block mb-2">
-                    SUB-TASKS
-                  </label>
-                  <button
-                    onClick={() => handleAddSubtask(editingTask.id)}
-                    className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
-                  >
-                    <span className="text-lg leading-none">+</span>
-                    <span>Create sub-task</span>
-                  </button>
-                </div>
-              )}
             </div>
 
             <div className="p-6 border-t border-[#374151] flex gap-3">
