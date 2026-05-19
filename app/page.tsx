@@ -3039,95 +3039,6 @@ export default function TaskManager() {
                   )}
                 </div>
 
-                {/* Assignee Selector */}
-                {profile?.team_id &&
-                  (() => {
-                    const isSharedProject =
-                      editingTask.project_id &&
-                      projects.find((p) => p.id === editingTask.project_id)
-                        ?.team_id;
-                    return isSharedProject;
-                  })() && (
-                    <div className="relative">
-                      <button
-                        onClick={() =>
-                          setShowEditAssigneeMenu(!showEditAssigneeMenu)
-                        }
-                        className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
-                          editingTask.assigned_to
-                            ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
-                            : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
-                        }`}
-                      >
-                        <svg
-                          xmlns="http://www.w3.org/2000/svg"
-                          width="14"
-                          height="14"
-                          viewBox="0 0 24 24"
-                          fill="none"
-                          stroke="currentColor"
-                          strokeWidth="2"
-                          strokeLinecap="round"
-                          strokeLinejoin="round"
-                        >
-                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
-                          <circle cx="12" cy="7" r="4" />
-                        </svg>
-                        {editingTask.assigned_to
-                          ? teamMembers.find(
-                              (m) => m.id === editingTask.assigned_to,
-                            )?.first_name || "Assigned"
-                          : "Unassigned"}
-                      </button>
-
-                      {showEditAssigneeMenu && (
-                        <>
-                          <div
-                            className="fixed inset-0 z-50"
-                            onClick={() => setShowEditAssigneeMenu(false)}
-                          />
-                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-[60] overflow-hidden">
-                            <button
-                              onClick={() => {
-                                setEditingTask({
-                                  ...editingTask,
-                                  assigned_to: null,
-                                });
-                                setShowEditAssigneeMenu(false);
-                              }}
-                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                            >
-                              <div className="w-5 h-5 rounded-full bg-[#374151] flex items-center justify-center text-[10px]">
-                                ?
-                              </div>
-                              Unassigned
-                            </button>
-                            {teamMembers.map((member) => (
-                              <button
-                                key={member.id}
-                                onClick={() => {
-                                  setEditingTask({
-                                    ...editingTask,
-                                    assigned_to: member.id,
-                                  });
-                                  setShowEditAssigneeMenu(false);
-                                }}
-                                className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
-                              >
-                                <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
-                                  {(
-                                    member.first_name?.[0] || "U"
-                                  ).toUpperCase()}
-                                </div>
-                                {member.first_name} {member.last_name}
-                              </button>
-                            ))}
-                          </div>
-                        </>
-                      )}
-                    </div>
-                  )}
-
                 {/* Priority Selector */}
                 <div className="relative">
                   <button
@@ -3309,6 +3220,97 @@ export default function TaskManager() {
                     </>
                   )}
                 </div>
+              </div>
+
+              <div className="flex items-center gap-4">
+                {/* Assignee Selector */}
+                {profile?.team_id &&
+                  (() => {
+                    const isSharedProject =
+                      editingTask.project_id &&
+                      projects.find((p) => p.id === editingTask.project_id)
+                        ?.team_id;
+                    return isSharedProject;
+                  })() && (
+                    <div className="relative">
+                      <button
+                        onClick={() =>
+                          setShowEditAssigneeMenu(!showEditAssigneeMenu)
+                        }
+                        className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
+                          editingTask.assigned_to
+                            ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
+                            : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
+                        }`}
+                      >
+                        <svg
+                          xmlns="http://www.w3.org/2000/svg"
+                          width="14"
+                          height="14"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M19 21v-2a4 4 0 0 0-4-4H9a4 4 0 0 0-4 4v2" />
+                          <circle cx="12" cy="7" r="4" />
+                        </svg>
+                        {editingTask.assigned_to
+                          ? teamMembers.find(
+                              (m) => m.id === editingTask.assigned_to,
+                            )?.first_name || "Assigned"
+                          : "Unassigned"}
+                      </button>
+
+                      {showEditAssigneeMenu && (
+                        <>
+                          <div
+                            className="fixed inset-0 z-50"
+                            onClick={() => setShowEditAssigneeMenu(false)}
+                          />
+                          <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-[60] overflow-hidden">
+                            <button
+                              onClick={() => {
+                                setEditingTask({
+                                  ...editingTask,
+                                  assigned_to: null,
+                                });
+                                setShowEditAssigneeMenu(false);
+                              }}
+                              className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                            >
+                              <div className="w-5 h-5 rounded-full bg-[#374151] flex items-center justify-center text-[10px]">
+                                ?
+                              </div>
+                              Unassigned
+                            </button>
+                            {teamMembers.map((member) => (
+                              <button
+                                key={member.id}
+                                onClick={() => {
+                                  setEditingTask({
+                                    ...editingTask,
+                                    assigned_to: member.id,
+                                  });
+                                  setShowEditAssigneeMenu(false);
+                                }}
+                                className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+                              >
+                                <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
+                                  {(
+                                    member.first_name?.[0] || "U"
+                                  ).toUpperCase()}
+                                </div>
+                                {member.first_name} {member.last_name}
+                              </button>
+                            ))}
+                          </div>
+                        </>
+                      )}
+                    </div>
+                  )}
 
                 {/* Project Selector */}
                 <div className="relative">
@@ -3397,22 +3399,6 @@ export default function TaskManager() {
                   )}
                 </div>
               </div>
-
-              {/* Sub-task Section */}
-              {getTaskDepth(editingTask) < 2 && (
-                <div>
-                  <label className="text-sm text-[#6b7280] block mb-2">
-                    SUB-TASKS
-                  </label>
-                  <button
-                    onClick={() => handleAddSubtask(editingTask.id)}
-                    className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
-                  >
-                    <span className="text-lg leading-none">+</span>
-                    <span>Create sub-task</span>
-                  </button>
-                </div>
-              )}
 
               <div>
                 <label className="block text-sm text-[#6b7280] mb-2">
@@ -3510,6 +3496,22 @@ export default function TaskManager() {
                   </div>
                 </div>
               </div>
+
+              {/* Sub-task Section */}
+              {getTaskDepth(editingTask) < 2 && (
+                <div>
+                  <label className="text-sm text-[#6b7280] block mb-2">
+                    SUB-TASKS
+                  </label>
+                  <button
+                    onClick={() => handleAddSubtask(editingTask.id)}
+                    className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
+                  >
+                    <span className="text-lg leading-none">+</span>
+                    <span>Create sub-task</span>
+                  </button>
+                </div>
+              )}
             </div>
 
             <div className="p-6 border-t border-[#374151] flex gap-3">
