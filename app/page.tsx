@@ -1666,6 +1666,11 @@ export default function TaskManager() {
     const depth = getTaskDepth(task);
     const isCompleted = task.status === "done";
 
+    const assigneeProfile = task.assigned_to
+      ? teamMembers.find((m) => m.id === task.assigned_to) ||
+        (user?.id === task.assigned_to ? profile : null)
+      : null;
+
     return (
       <div
         key={task.id}
@@ -1747,19 +1752,23 @@ export default function TaskManager() {
 
         {task.assigned_to && (
           <div
-            className={`flex-shrink-0 rounded-full bg-[#3b82f6] flex items-center justify-center font-bold text-white border border-[#1e2130] ${
+            className={`flex-shrink-0 rounded-full flex items-center justify-center font-bold text-white border border-[#1e2130] overflow-hidden ${
               compact ? "w-4 h-4 text-[7px]" : "w-5 h-5 text-[8px]"
-            }`}
-            title={`Assigned to ${
-              teamMembers.find((m) => m.id === task.assigned_to)?.first_name ||
-              "Member"
-            }`}
+            } ${!assigneeProfile?.avatar_url ? "bg-[#3b82f6]" : ""}`}
+            title={`Assigned to ${assigneeProfile?.first_name || "Member"}`}
           >
-            {(
-              teamMembers.find((m) => m.id === task.assigned_to)
-                ?.first_name?.[0] ||
-              (user?.id === task.assigned_to ? profile?.first_name?.[0] : "U")
-            )?.toUpperCase()}
+            {assigneeProfile?.avatar_url ? (
+              <Image
+                src={assigneeProfile.avatar_url}
+                alt="Avatar"
+                width={20}
+                height={20}
+                className="w-full h-full object-cover"
+                unoptimized
+              />
+            ) : (
+              (assigneeProfile?.first_name?.[0] || "U").toUpperCase()
+            )}
           </div>
         )}
 
