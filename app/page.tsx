@@ -26,6 +26,7 @@ type ProjectFolder = {
   name: string;
   user_id?: string;
   team_id?: string | null;
+  sort_order?: number;
 };
 
 interface ProfileSettings {
@@ -233,6 +234,8 @@ export default function TaskManager() {
   const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(
     null,
   );
+  const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
+  const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
@@ -604,6 +607,7 @@ export default function TaskManager() {
         .or(
           `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
         )
+        .order("sort_order", { ascending: true })
         .order("name");
 
       setFolders(folderData || []);
@@ -747,20 +751,25 @@ export default function TaskManager() {
 
   const handleAddFolder = async () => {
     if (!folderInput.trim() || !user) return;
+
+    const nextSortOrder =
+      folders.length > 0
+        ? Math.max(...folders.map((f) => f.sort_order || 0)) + 1
+        : 0;
+
     const { data, error } = await supabase
       .from("project_folders")
       .insert({
         name: folderInput.trim(),
         user_id: user.id,
         team_id: shareProjectWithTeam ? currentTeam?.id : null,
+        sort_order: nextSortOrder,
       })
       .select()
       .single();
 
     if (!error && data) {
-      setFolders((prev) =>
-        [...prev, data].sort((a, b) => a.name.localeCompare(b.name)),
-      );
+      setFolders((prev) => [...prev, data]);
       setFolderInput("");
       setShareProjectWithTeam(false);
       setShowProjectMenu(false); // Close menu on success
@@ -869,7 +878,15 @@ export default function TaskManager() {
     const newProjects = [...projects];
     const [removed] = newProjects.splice(sourceIndex, 1);
     removed.folder_id = folderId;
-    newProjects.push(removed);
+
+    const firstProjectInFolderIndex = newProjects.findIndex(
+      (p) => p.folder_id === folderId,
+    );
+    if (firstProjectInFolderIndex !== -1) {
+      newProjects.splice(firstProjectInFolderIndex, 0, removed);
+    } else {
+      newProjects.push(removed);
+    }
 
     const updatedProjects = newProjects.map((p, index) => ({
       ...p,
@@ -887,6 +904,76 @@ export default function TaskManager() {
           .eq("id", p.id),
       ),
     ).catch((err) => console.error("Failed to save folder drop", err));
+  };
+
+  const handleFolderReorderDrop = async (targetFolderId: string) => {
+    if (!draggedFolderId || draggedFolderId === targetFolderId) return;
+
+    const sourceIndex = folders.findIndex((f) => f.id === draggedFolderId);
+    const targetIndex = folders.findIndex((f) => f.id === targetFolderId);
+
+    if (sourceIndex === -1 || targetIndex === -1) return;
+
+    const newFolders = [...folders];
+    const [removed] = newFolders.splice(sourceIndex, 1);
+    newFolders.splice(targetIndex, 0, removed);
+
+    const updatedFolders = newFolders.map((f, index) => ({
+      ...f,
+      sort_order: index,
+    }));
+
+    setFolders(updatedFolders);
+    setDraggedFolderId(null);
+
+    Promise.all(
+      updatedFolders.map((f) =>
+        supabase
+          .from("project_folders")
+          .update({ sort_order: f.sort_order })
+          .eq("id", f.id),
+      ),
+    ).catch((err) => console.error("Failed to save folder sort order", err));
+  };
+
+  const handleProjectRootDrop = async (type: "personal" | "shared") => {
+    if (!draggedProjectId) return;
+    const sourceIndex = projects.findIndex((p) => p.id === draggedProjectId);
+    if (sourceIndex === -1) return;
+
+    const newProjects = [...projects];
+    const [removed] = newProjects.splice(sourceIndex, 1);
+
+    removed.folder_id = null;
+
+    if (type === "personal") {
+      removed.team_id = null;
+    } else if (type === "shared") {
+      removed.team_id = currentTeam?.id || null;
+    }
+
+    newProjects.push(removed);
+
+    const updatedProjects = newProjects.map((p, index) => ({
+      ...p,
+      sort_order: index,
+    }));
+
+    setProjects(updatedProjects);
+    setDraggedProjectId(null);
+
+    Promise.all(
+      updatedProjects.map((p) =>
+        supabase
+          .from("projects")
+          .update({
+            sort_order: p.sort_order,
+            folder_id: p.folder_id,
+            team_id: p.team_id,
+          })
+          .eq("id", p.id),
+      ),
+    ).catch((err) => console.error("Failed to save project drop", err));
   };
 
   // Smart filtering
@@ -1175,32 +1262,75 @@ export default function TaskManager() {
       <>
         {folderList.map((folder) => (
           <div key={folder.id} className="mb-3">
-            <button
-              onClick={() => setSelectedList(folder.id)}
+            <div
+              draggable
+              onDragStart={(e) => {
+                setDraggedFolderId(folder.id);
+                e.dataTransfer.effectAllowed = "move";
+                e.dataTransfer.setData("text/plain", folder.id);
+              }}
               onDragOver={(e) => {
                 e.preventDefault();
+                e.stopPropagation();
                 e.dataTransfer.dropEffect = "move";
-                if (draggedProjectId) setDragOverProjectId(folder.id);
+                if (draggedFolderId && draggedFolderId !== folder.id) {
+                  setDragOverFolderId(folder.id);
+                } else if (draggedProjectId) {
+                  setDragOverProjectId(folder.id);
+                }
               }}
-              onDragLeave={() => setDragOverProjectId(null)}
+              onDragLeave={() => {
+                setDragOverFolderId(null);
+                setDragOverProjectId(null);
+              }}
               onDrop={(e) => {
                 e.preventDefault();
-                setDragOverProjectId(null);
-                handleFolderDrop(folder.id);
+                e.stopPropagation();
+                if (draggedFolderId) {
+                  setDragOverFolderId(null);
+                  handleFolderReorderDrop(folder.id);
+                } else if (draggedProjectId) {
+                  setDragOverProjectId(null);
+                  handleFolderDrop(folder.id);
+                }
               }}
-              className={`w-full text-left px-3 py-2 rounded-lg text-sm font-medium transition-colors flex items-center gap-2 border-2 ${
+              className={`flex items-center pr-2 pl-1 rounded-lg transition-colors border-2 ${
+                dragOverFolderId === folder.id ||
                 dragOverProjectId === folder.id
                   ? "border-[#3b82f6]"
                   : "border-transparent"
               } ${
                 selectedList === folder.id
-                  ? "bg-[#1e2130] text-white"
-                  : "text-[#9ca3af] hover:bg-[#1e2130] hover:text-white"
+                  ? "bg-[#1e2130]"
+                  : "hover:bg-[#1e2130]"
               }`}
             >
-              <span className="text-[14px]">📁</span>
-              <span className="truncate">{folder.name}</span>
-            </button>
+              <div className="cursor-grab active:cursor-grabbing text-[#4b5563] hover:text-[#9ca3af] transition-colors flex-shrink-0 px-1">
+                <svg
+                  width="12"
+                  height="12"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  strokeWidth="2"
+                  strokeLinecap="round"
+                  strokeLinejoin="round"
+                >
+                  <line x1="3" y1="12" x2="21" y2="12"></line>
+                  <line x1="3" y1="6" x2="21" y2="6"></line>
+                  <line x1="3" y1="18" x2="21" y2="18"></line>
+                </svg>
+              </div>
+              <button
+                onClick={() => setSelectedList(folder.id)}
+                className={`flex-1 text-left px-2 py-2 text-sm font-medium flex items-center gap-2 min-w-0 ${
+                  selectedList === folder.id ? "text-white" : "text-[#9ca3af]"
+                }`}
+              >
+                <span className="text-[14px]">📁</span>
+                <span className="truncate">{folder.name}</span>
+              </button>
+            </div>
             <div className="ml-3 pl-2 mt-1 border-l border-[#374151] space-y-1">
               {projectList
                 .filter((p) => p.folder_id === folder.id)
@@ -1229,6 +1359,7 @@ export default function TaskManager() {
       }}
       onDragOver={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         e.dataTransfer.dropEffect = "move";
         if (draggedProjectId && draggedProjectId !== project.id) {
           setDragOverProjectId(project.id);
@@ -1237,6 +1368,7 @@ export default function TaskManager() {
       onDragLeave={() => setDragOverProjectId(null)}
       onDrop={(e) => {
         e.preventDefault();
+        e.stopPropagation();
         setDragOverProjectId(null);
         handleProjectDrop(project.id);
       }}
@@ -1713,7 +1845,23 @@ export default function TaskManager() {
         </div>
 
         <div className="flex-1">
-          <div className="flex items-center justify-between mb-2 px-2">
+          <div
+            className={`flex items-center justify-between mb-2 px-2 py-1 rounded transition-colors ${dragOverProjectId === "personal-root" ? "bg-[#3b82f6]/20 border border-[#3b82f6]" : "border border-transparent"}`}
+            onDragOver={(e) => {
+              if (draggedProjectId) {
+                e.preventDefault();
+                setDragOverProjectId("personal-root");
+              }
+            }}
+            onDragLeave={() => setDragOverProjectId(null)}
+            onDrop={(e) => {
+              if (draggedProjectId) {
+                e.preventDefault();
+                setDragOverProjectId(null);
+                handleProjectRootDrop("personal");
+              }
+            }}
+          >
             <p className="text-xs uppercase tracking-widest text-[#6b7280]">
               Projects
             </p>
@@ -1914,17 +2062,69 @@ export default function TaskManager() {
               )}
             </div>
           </div>
-          <div className="space-y-1">
+          <div className="space-y-1 pb-2 relative">
             {renderProjectList(personalProjects, personalFolders)}
+            <div
+              className={`h-4 rounded transition-all ${dragOverProjectId === "personal-bottom" ? "bg-[#3b82f6]/20 border border-[#3b82f6]" : "bg-transparent"}`}
+              onDragOver={(e) => {
+                if (draggedProjectId) {
+                  e.preventDefault();
+                  setDragOverProjectId("personal-bottom");
+                }
+              }}
+              onDragLeave={() => setDragOverProjectId(null)}
+              onDrop={(e) => {
+                if (draggedProjectId) {
+                  e.preventDefault();
+                  setDragOverProjectId(null);
+                  handleProjectRootDrop("personal");
+                }
+              }}
+            />
           </div>
 
-          {sharedProjects.length > 0 && (
+          {(sharedProjects.length > 0 || sharedFolders.length > 0) && (
             <div className="mt-6">
-              <p className="text-xs uppercase tracking-widest text-[#6b7280] mb-2 px-2">
-                Shared Projects
-              </p>
-              <div className="space-y-1">
+              <div
+                className={`flex items-center justify-between mb-2 px-2 py-1 rounded transition-colors ${dragOverProjectId === "shared-root" ? "bg-[#3b82f6]/20 border border-[#3b82f6]" : "border border-transparent"}`}
+                onDragOver={(e) => {
+                  if (draggedProjectId) {
+                    e.preventDefault();
+                    setDragOverProjectId("shared-root");
+                  }
+                }}
+                onDragLeave={() => setDragOverProjectId(null)}
+                onDrop={(e) => {
+                  if (draggedProjectId) {
+                    e.preventDefault();
+                    setDragOverProjectId(null);
+                    handleProjectRootDrop("shared");
+                  }
+                }}
+              >
+                <p className="text-xs uppercase tracking-widest text-[#6b7280]">
+                  Shared Projects
+                </p>
+              </div>
+              <div className="space-y-1 pb-2 relative">
                 {renderProjectList(sharedProjects, sharedFolders)}
+                <div
+                  className={`h-4 rounded transition-all ${dragOverProjectId === "shared-bottom" ? "bg-[#3b82f6]/20 border border-[#3b82f6]" : "bg-transparent"}`}
+                  onDragOver={(e) => {
+                    if (draggedProjectId) {
+                      e.preventDefault();
+                      setDragOverProjectId("shared-bottom");
+                    }
+                  }}
+                  onDragLeave={() => setDragOverProjectId(null)}
+                  onDrop={(e) => {
+                    if (draggedProjectId) {
+                      e.preventDefault();
+                      setDragOverProjectId(null);
+                      handleProjectRootDrop("shared");
+                    }
+                  }}
+                />
               </div>
             </div>
           )}
