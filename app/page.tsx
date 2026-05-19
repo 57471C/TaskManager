@@ -10,57 +10,8 @@ import { User } from "@supabase/supabase-js";
 import Image from "next/image";
 import { Turnstile } from "@marsidev/react-turnstile";
 
-type Project = {
-  id: string;
-  name: string;
-  colour: string;
-  icon?: string | null;
-  user_id?: string;
-  team_id?: string | null;
-  folder_id?: string | null;
-  sort_order?: number;
-};
-
-type ProjectFolder = {
-  id: string;
-  name: string;
-  user_id?: string;
-  team_id?: string | null;
-  sort_order?: number;
-};
-
-interface ProfileSettings {
-  sound_enabled?: boolean;
-  timezone?: string;
-  [key: string]: unknown;
-}
-
-type Task = {
-  id: string;
-  title: string;
-  status: string;
-  due_date: string | null;
-  priority: number;
-  tags: string[];
-  project_id: string | null;
-  content: string | null;
-  parent_id: string | null;
-  team_id?: string | null;
-  is_deleted?: boolean;
-  user_id?: string;
-  assigned_to?: string | null;
-  sort_order?: number;
-};
-
-type Profile = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  avatar_url: string | null;
-  email?: string | null;
-  team_id: string | null;
-  settings: ProfileSettings;
-};
+import { Project, ProjectFolder, Task, Profile } from "./types";
+import { useProjectStore } from "./useProjectStore";
 
 const TIPTAP_EXTENSIONS = [
   StarterKit,
@@ -197,8 +148,13 @@ export default function TaskManager() {
   const [memberToRemove, setMemberToRemove] = useState<Profile | null>(null);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const [projects, setProjects] = useState<Project[]>([]);
-  const [folders, setFolders] = useState<ProjectFolder[]>([]);
+  const {
+    projects,
+    setProjects,
+    folders,
+    setFolders,
+    fetchProjectsAndFolders,
+  } = useProjectStore();
   const [folderInput, setFolderInput] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState<string>("Inbox");
@@ -597,27 +553,7 @@ export default function TaskManager() {
         .eq("id", user.id)
         .single();
 
-      const { data } = await supabase
-        .from("projects")
-        .select("*")
-        .or(
-          `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
-        )
-        .order("sort_order", { ascending: true })
-        .order("name");
-
-      setProjects(data || []);
-
-      const { data: folderData } = await supabase
-        .from("project_folders")
-        .select("*")
-        .or(
-          `user_id.eq.${user.id}${profileData?.team_id ? `,team_id.eq.${profileData.team_id}` : ""}`,
-        )
-        .order("sort_order", { ascending: true })
-        .order("name");
-
-      setFolders(folderData || []);
+      await fetchProjectsAndFolders(user.id, profileData?.team_id);
     };
 
     const fetchTasks = async () => {
@@ -679,7 +615,7 @@ export default function TaskManager() {
     fetchProfile();
     fetchProjects();
     fetchTasks();
-  }, [user]);
+  }, [user, fetchProjectsAndFolders]);
 
   const projectTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {};

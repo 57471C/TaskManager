@@ -1,51 +1,35 @@
 import { create } from 'zustand';
 import { supabase } from '@/lib/supabase';
-
-// You would typically move these types to a shared `types.ts` file
-export type Project = {
-  id: string;
-  name: string;
-  colour: string;
-  icon?: string | null;
-  user_id?: string;
-  team_id?: string | null;
-  folder_id?: string | null;
-  sort_order?: number;
-};
-
-export type ProjectFolder = {
-  id: string;
-  name: string;
-  user_id?: string;
-  team_id?: string | null;
-  sort_order?: number;
-};
+import { Project, ProjectFolder } from './types';
 
 interface ProjectState {
   projects: Project[];
   folders: ProjectFolder[];
   isLoading: boolean;
   
-  // Actions
-  setProjects: (projects: Project[]) => void;
-  setFolders: (folders: ProjectFolder[]) => void;
+  setProjects: (updater: Project[] | ((prev: Project[]) => Project[])) => void;
+  setFolders: (updater: ProjectFolder[] | ((prev: ProjectFolder[]) => ProjectFolder[])) => void;
   fetchProjectsAndFolders: (userId: string, teamId?: string | null) => Promise<void>;
-  addProject: (project: Omit<Project, 'id'>) => Promise<void>;
-  deleteProject: (projectId: string) => Promise<void>;
 }
 
-export const useProjectStore = create<ProjectState>((set, get) => ({
+export const useProjectStore = create<ProjectState>((set) => ({
   projects: [],
   folders: [],
   isLoading: false,
 
-  setProjects: (projects) => set({ projects }),
-  setFolders: (folders) => set({ folders }),
+  setProjects: (updater) => 
+    set((state) => ({ 
+      projects: typeof updater === 'function' ? updater(state.projects) : updater 
+    })),
+    
+  setFolders: (updater) => 
+    set((state) => ({ 
+      folders: typeof updater === 'function' ? updater(state.folders) : updater 
+    })),
 
   fetchProjectsAndFolders: async (userId, teamId) => {
     set({ isLoading: true });
     
-    // Fetch Projects
     const { data: projects } = await supabase
       .from("projects")
       .select("*")
@@ -53,7 +37,6 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       .order("sort_order", { ascending: true })
       .order("name");
 
-    // Fetch Folders
     const { data: folders } = await supabase
       .from("project_folders")
       .select("*")
@@ -67,20 +50,4 @@ export const useProjectStore = create<ProjectState>((set, get) => ({
       isLoading: false 
     });
   },
-
-  addProject: async (project) => {
-    const { data, error } = await supabase
-      .from("projects")
-      .insert(project)
-      .select()
-      .single();
-
-    if (!error && data) {
-      set((state) => ({ projects: [...state.projects, data] }));
-    }
-  },
-
-  deleteProject: async (projectId) => {
-    // Implementation for deletion...
-  }
 }));
