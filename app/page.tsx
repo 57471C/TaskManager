@@ -1216,7 +1216,7 @@ export default function TaskManager() {
   const renderSingleProject = (project: Project) => (
     <div
       key={project.id}
-      className={`relative group/project flex items-center pr-2 rounded-lg transition-colors border-2 ${
+      className={`relative group/project flex items-center pr-2 pl-1 rounded-lg transition-colors border-2 ${
         dragOverProjectId === project.id
           ? "border-[#3b82f6]"
           : "border-transparent"
@@ -1241,9 +1241,25 @@ export default function TaskManager() {
         handleProjectDrop(project.id);
       }}
     >
+      <div className="cursor-grab active:cursor-grabbing text-[#4b5563] hover:text-[#9ca3af] transition-colors flex-shrink-0 px-1">
+        <svg
+          width="12"
+          height="12"
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke="currentColor"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        >
+          <line x1="3" y1="12" x2="21" y2="12"></line>
+          <line x1="3" y1="6" x2="21" y2="6"></line>
+          <line x1="3" y1="18" x2="21" y2="18"></line>
+        </svg>
+      </div>
       <button
         onClick={() => setSelectedList(project.id)}
-        className={`flex-1 text-left px-3 py-2 text-sm flex items-center gap-2 min-w-0 ${
+        className={`flex-1 text-left px-2 py-2 text-sm flex items-center gap-2 min-w-0 ${
           selectedList === project.id ? "text-white" : ""
         }`}
       >
@@ -1268,23 +1284,6 @@ export default function TaskManager() {
         </div>
         <span className="truncate">{project.name}</span>
       </button>
-
-      <div className="opacity-0 group-hover/project:opacity-50 hover:!opacity-100 cursor-grab active:cursor-grabbing text-[#6b7280] flex-shrink-0 ml-1 px-1">
-        <svg
-          width="14"
-          height="14"
-          viewBox="0 0 24 24"
-          fill="none"
-          stroke="currentColor"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        >
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
-        </svg>
-      </div>
 
       {showProjectIconMenu === project.id && (
         <>
@@ -1945,7 +1944,7 @@ export default function TaskManager() {
                 {folderProjects.map((project) => (
                   <div
                     key={project.id}
-                    className="w-[340px] flex-shrink-0 flex flex-col max-h-full bg-[#1e2130]/50 rounded-xl border border-[#374151] overflow-hidden"
+                    className="w-[480px] flex-shrink-0 flex flex-col max-h-full bg-[#1e2130]/50 rounded-xl border border-[#374151] overflow-hidden"
                   >
                     <div className="p-4 border-b border-[#1e2130] font-bold text-white flex items-center justify-between bg-[#1e2130]">
                       <div className="flex items-center gap-2">
@@ -1984,7 +1983,7 @@ export default function TaskManager() {
                       />
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-3 space-y-2">
+                    <div className="flex-1 overflow-y-auto p-3 pb-24 space-y-2">
                       {displayedTasks
                         .filter(
                           (t) =>
@@ -2481,7 +2480,7 @@ export default function TaskManager() {
 
               {/* Scrollable Task List */}
               <div className="flex-1 p-6 overflow-auto">
-                <div className="max-w-4xl space-y-4">
+                <div className="max-w-4xl pb-24 space-y-4">
                   {/* OPEN TASKS */}
                   {displayedTasks
                     .filter((t) => t.status !== "done")
