@@ -49,6 +49,7 @@ type Task = {
   is_deleted?: boolean;
   user_id?: string;
   assigned_to?: string | null;
+  sort_order?: number;
 };
 
 type Profile = {
@@ -236,6 +237,12 @@ export default function TaskManager() {
   );
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
+  const [taskSortOrder, setTaskSortOrder] = useState<
+    "custom" | "priority" | "date"
+  >("custom");
+  const [showSortMenu, setShowSortMenu] = useState<string | null>(null);
+  const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
+  const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
 
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
@@ -976,6 +983,77 @@ export default function TaskManager() {
     ).catch((err) => console.error("Failed to save project drop", err));
   };
 
+  const handleTaskDrop = async (
+    targetTaskId: string | null,
+    targetProjectId: string | null,
+  ) => {
+    if (!draggedTaskId) return;
+    if (draggedTaskId === targetTaskId) return;
+
+    const sourceTask = tasks.find((t) => t.id === draggedTaskId);
+    if (!sourceTask) return;
+
+    const newTasks = [...tasks];
+    const sourceIndex = newTasks.findIndex((t) => t.id === draggedTaskId);
+    const [removed] = newTasks.splice(sourceIndex, 1);
+
+    if (targetProjectId !== undefined) {
+      removed.project_id = targetProjectId;
+      const targetProject = projects.find((p) => p.id === targetProjectId);
+      removed.team_id = targetProject?.team_id || null;
+    }
+
+    const targetTasks = newTasks.filter(
+      (t) =>
+        t.project_id === removed.project_id &&
+        t.parent_id === removed.parent_id,
+    );
+
+    if (targetTaskId) {
+      const targetIndexInFiltered = targetTasks.findIndex(
+        (t) => t.id === targetTaskId,
+      );
+      if (targetIndexInFiltered !== -1) {
+        targetTasks.splice(targetIndexInFiltered, 0, removed);
+      } else {
+        targetTasks.push(removed);
+      }
+    } else {
+      targetTasks.push(removed);
+    }
+
+    const updatedTasks = targetTasks.map((t, index) => ({
+      ...t,
+      sort_order: index,
+    }));
+
+    const finalTasks = newTasks
+      .filter(
+        (t) =>
+          !(
+            t.project_id === removed.project_id &&
+            t.parent_id === removed.parent_id
+          ),
+      )
+      .concat(updatedTasks);
+
+    setTasks(finalTasks);
+    setDraggedTaskId(null);
+
+    Promise.all(
+      updatedTasks.map((t) =>
+        supabase
+          .from("tasks")
+          .update({
+            sort_order: t.sort_order,
+            project_id: t.project_id,
+            team_id: t.team_id,
+          })
+          .eq("id", t.id),
+      ),
+    ).catch((err) => console.error("Failed to save task sort order", err));
+  };
+
   // Smart filtering
   const displayedTasks = useMemo(() => {
     const tz = getUserTz(profile);
@@ -1020,7 +1098,24 @@ export default function TaskManager() {
     const flatten = (parentId: string | null) => {
       const children = tasks
         .filter((t) => t.parent_id === parentId)
-        .sort((a, b) => (a.due_date || "").localeCompare(b.due_date || ""));
+        .sort((a, b) => {
+          if (taskSortOrder === "priority") {
+            if (a.priority !== b.priority) return b.priority - a.priority;
+            if (!a.due_date && b.due_date) return 1;
+            if (a.due_date && !b.due_date) return -1;
+            return (a.due_date || "").localeCompare(b.due_date || "");
+          } else if (taskSortOrder === "date") {
+            if (!a.due_date && b.due_date) return 1;
+            if (a.due_date && !b.due_date) return -1;
+            const dateCompare = (a.due_date || "").localeCompare(
+              b.due_date || "",
+            );
+            if (dateCompare !== 0) return dateCompare;
+            return b.priority - a.priority;
+          } else {
+            return (a.sort_order || 0) - (b.sort_order || 0);
+          }
+        });
 
       children.forEach((task) => {
         const hasVisibleChild = (id: string): boolean => {
@@ -1037,7 +1132,15 @@ export default function TaskManager() {
 
     flatten(null);
     return result;
-  }, [tasks, selectedList, projects, user?.id, profile, folders]);
+  }, [
+    tasks,
+    selectedList,
+    projects,
+    user?.id,
+    profile,
+    folders,
+    taskSortOrder,
+  ]);
 
   // Assignment Notification Logic
   useEffect(() => {
@@ -1252,6 +1355,65 @@ export default function TaskManager() {
   );
 
   const sharedFolders = folders.filter((f) => f.team_id);
+
+  const renderSortMenu = (menuId: string) => {
+    if (showSortMenu !== menuId) return null;
+    return (
+      <>
+        <div
+          className="fixed inset-0 z-40"
+          onClick={() => setShowSortMenu(null)}
+        />
+        <div className="absolute right-0 top-full mt-2 w-36 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-50">
+          <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-1 px-4 mt-2">
+            Sort Order
+          </p>
+          <button
+            onClick={() => {
+              setTaskSortOrder("custom");
+              setShowSortMenu(null);
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+          >
+            <span
+              className={`w-4 text-center ${taskSortOrder === "custom" ? "text-[#3b82f6]" : "text-transparent"}`}
+            >
+              ✓
+            </span>
+            Custom
+          </button>
+          <button
+            onClick={() => {
+              setTaskSortOrder("priority");
+              setShowSortMenu(null);
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
+          >
+            <span
+              className={`w-4 text-center ${taskSortOrder === "priority" ? "text-[#3b82f6]" : "text-transparent"}`}
+            >
+              ✓
+            </span>
+            Priority
+          </button>
+          <button
+            onClick={() => {
+              setTaskSortOrder("date");
+              setShowSortMenu(null);
+            }}
+            className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2 mb-1"
+          >
+            <span
+              className={`w-4 text-center ${taskSortOrder === "date" ? "text-[#3b82f6]" : "text-transparent"}`}
+            >
+              ✓
+            </span>
+            Date
+          </button>
+        </div>
+      </>
+    );
+  };
 
   const renderProjectList = (
     projectList: Project[],
@@ -1508,6 +1670,29 @@ export default function TaskManager() {
       <div
         key={task.id}
         onClick={() => setEditingTask(task)}
+        draggable={taskSortOrder === "custom"}
+        onDragStart={(e) => {
+          if (taskSortOrder !== "custom") return;
+          setDraggedTaskId(task.id);
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", task.id);
+        }}
+        onDragOver={(e) => {
+          if (taskSortOrder !== "custom") return;
+          e.preventDefault();
+          e.stopPropagation();
+          if (draggedTaskId && draggedTaskId !== task.id) {
+            setDragOverTaskId(task.id);
+          }
+        }}
+        onDragLeave={() => setDragOverTaskId(null)}
+        onDrop={(e) => {
+          if (taskSortOrder !== "custom") return;
+          e.preventDefault();
+          e.stopPropagation();
+          setDragOverTaskId(null);
+          handleTaskDrop(task.id, task.project_id);
+        }}
         style={{ marginLeft: `${depth * (compact ? 12 : 28)}px` }}
         className={`rounded-lg flex items-center gap-3 border-l-4 cursor-pointer transition-colors relative group/task ${
           isCompleted
@@ -1521,8 +1706,29 @@ export default function TaskManager() {
                       ? "border-blue-500"
                       : "border-transparent"
               }`
-        } ${compact ? "p-3" : "p-4"}`}
+        } ${compact ? "p-3" : "p-4"} ${
+          dragOverTaskId === task.id ? "shadow-[0_-2px_0_#3b82f6]" : ""
+        }`}
       >
+        {taskSortOrder === "custom" && (
+          <div className="cursor-grab active:cursor-grabbing text-[#4b5563] hover:text-[#9ca3af] transition-colors flex-shrink-0 -ml-1">
+            <svg
+              width="12"
+              height="12"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth="2"
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
+              <line x1="3" y1="12" x2="21" y2="12"></line>
+              <line x1="3" y1="6" x2="21" y2="6"></line>
+              <line x1="3" y1="18" x2="21" y2="18"></line>
+            </svg>
+          </div>
+        )}
+
         <input
           type="checkbox"
           checked={isCompleted}
@@ -2163,7 +2369,7 @@ export default function TaskManager() {
                       </span>
                     </div>
 
-                    <div className="p-3 border-b border-[#1e2130] bg-[#0f1117]">
+                    <div className="p-3 border-b border-[#1e2130] bg-[#0f1117] flex items-center gap-2 relative">
                       <input
                         type="text"
                         placeholder="Quick add task..."
@@ -2179,11 +2385,50 @@ export default function TaskManager() {
                             e.currentTarget.value = "";
                           }
                         }}
-                        className="w-full bg-[#1e2130] border border-[#374151] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3b82f6]"
+                        className="flex-1 bg-[#1e2130] border border-[#374151] rounded-lg px-3 py-2 text-sm text-white focus:outline-none focus:border-[#3b82f6]"
                       />
+                      <button
+                        onClick={() => setShowSortMenu(project.id)}
+                        className={`p-2 rounded transition-colors flex-shrink-0 ${showSortMenu === project.id ? "bg-[#374151] text-white" : "text-[#6b7280] hover:text-white hover:bg-[#374151]"}`}
+                        title="Sort tasks"
+                      >
+                        <svg
+                          width="16"
+                          height="16"
+                          viewBox="0 0 24 24"
+                          fill="none"
+                          stroke="currentColor"
+                          strokeWidth="2"
+                          strokeLinecap="round"
+                          strokeLinejoin="round"
+                        >
+                          <path d="M11 5h10"></path>
+                          <path d="M11 9h7"></path>
+                          <path d="M11 13h4"></path>
+                          <path d="M3 17l3 3 3-3"></path>
+                          <path d="M6 18V4"></path>
+                        </svg>
+                      </button>
+                      {renderSortMenu(project.id)}
                     </div>
 
-                    <div className="flex-1 overflow-y-auto p-3 pb-24 space-y-2">
+                    <div
+                      className="flex-1 overflow-y-auto p-3 pb-24 space-y-2 relative"
+                      onDragOver={(e) => {
+                        if (taskSortOrder === "custom" && draggedTaskId) {
+                          e.preventDefault();
+                          setDragOverTaskId(`project-${project.id}`);
+                        }
+                      }}
+                      onDragLeave={() => setDragOverTaskId(null)}
+                      onDrop={(e) => {
+                        if (taskSortOrder === "custom" && draggedTaskId) {
+                          e.preventDefault();
+                          setDragOverTaskId(null);
+                          handleTaskDrop(null, project.id);
+                        }
+                      }}
+                    >
                       {displayedTasks
                         .filter(
                           (t) =>
@@ -2212,6 +2457,10 @@ export default function TaskManager() {
                             t.project_id === project.id && t.status === "done",
                         )
                         .map((task) => renderTaskNode(task, true))}
+
+                      {dragOverTaskId === `project-${project.id}` && (
+                        <div className="h-0.5 bg-[#3b82f6] rounded w-full my-2" />
+                      )}
                     </div>
                   </div>
                 ))}
@@ -2222,7 +2471,7 @@ export default function TaskManager() {
           return (
             <>
               {/* Top Bar - Inline Add Task */}
-              <div className="border-b border-[#1e2130] px-6 py-3 bg-[#0f1117]">
+              <div className="border-b border-[#1e2130] px-6 py-3 bg-[#0f1117] flex items-start gap-4">
                 <div className="w-full max-w-[620px]">
                   {!isAddingTask ? (
                     <div
@@ -2676,11 +2925,56 @@ export default function TaskManager() {
                     </div>
                   )}
                 </div>
+
+                <div className="relative mt-1">
+                  <button
+                    onClick={() => setShowSortMenu("main")}
+                    className={`p-2 transition-colors flex items-center justify-center rounded-lg border ${showSortMenu === "main" ? "bg-[#374151] border-[#374151] text-white" : "border-transparent text-[#6b7280] hover:text-white hover:bg-[#1e2130]"}`}
+                    title="Sort tasks"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                    >
+                      <path d="M11 5h10"></path>
+                      <path d="M11 9h7"></path>
+                      <path d="M11 13h4"></path>
+                      <path d="M3 17l3 3 3-3"></path>
+                      <path d="M6 18V4"></path>
+                    </svg>
+                  </button>
+                  {renderSortMenu("main")}
+                </div>
               </div>
 
               {/* Scrollable Task List */}
               <div className="flex-1 p-6 overflow-auto">
-                <div className="max-w-4xl pb-24 space-y-4">
+                <div
+                  className="max-w-4xl pb-24 space-y-4 relative"
+                  onDragOver={(e) => {
+                    if (taskSortOrder === "custom" && draggedTaskId) {
+                      e.preventDefault();
+                      setDragOverTaskId("main-bottom");
+                    }
+                  }}
+                  onDragLeave={() => setDragOverTaskId(null)}
+                  onDrop={(e) => {
+                    if (taskSortOrder === "custom" && draggedTaskId) {
+                      e.preventDefault();
+                      setDragOverTaskId(null);
+                      const targetProject = !SMART_LISTS.includes(selectedList)
+                        ? selectedList
+                        : null;
+                      handleTaskDrop(null, targetProject);
+                    }
+                  }}
+                >
                   {/* OPEN TASKS */}
                   {displayedTasks
                     .filter((t) => t.status !== "done")
@@ -2706,6 +3000,10 @@ export default function TaskManager() {
 
                   {displayedTasks.length === 0 && (
                     <p className="text-[#6b7280]">No tasks in this view.</p>
+                  )}
+
+                  {dragOverTaskId === "main-bottom" && (
+                    <div className="h-0.5 bg-[#3b82f6] rounded w-full mt-4 mb-2" />
                   )}
                 </div>
               </div>
