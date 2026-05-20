@@ -80,6 +80,14 @@ const PROJECT_ICONS = [
 
 const SMART_LISTS = ["Inbox", "Today", "Next 7 Days", "Assigned to Me"];
 
+const tryParseJSON = (jsonString: string) => {
+  try {
+    const o = JSON.parse(jsonString);
+    if (o && typeof o === "object") return o;
+  } catch (e) {}
+  return false;
+};
+
 const getUserTz = (profile: Profile | null) => {
   return (
     profile?.settings?.timezone ||
@@ -203,12 +211,14 @@ export default function TaskManager() {
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
     immediatelyRender: false,
-    content: editingTask?.content || "",
+    content: editingTask?.content
+      ? tryParseJSON(editingTask.content) || editingTask.content
+      : "",
     onBlur: ({ editor }) => {
-      const html = editor.getHTML();
+      const jsonContent = JSON.stringify(editor.getJSON());
       setEditingTask((prev) => {
-        if (prev && prev.content !== html) {
-          return { ...prev, content: html };
+        if (prev && prev.content !== jsonContent) {
+          return { ...prev, content: jsonContent };
         }
         return prev;
       });
@@ -219,14 +229,16 @@ export default function TaskManager() {
 
   // Synchronize TipTap editor content with editingTask.content
   useEffect(() => {
-    if (
-      editor &&
-      editingTask &&
-      editor.getHTML() !== (editingTask.content || "")
-    ) {
-      editor.commands.setContent(editingTask.content || "", {
-        emitUpdate: false,
-      });
+    if (editor && editingTask) {
+      const currentJson = JSON.stringify(editor.getJSON());
+      const taskContent = editingTask.content || "";
+
+      if (currentJson !== taskContent && taskContent !== editor.getHTML()) {
+        const parsedContent = tryParseJSON(taskContent) || taskContent;
+        editor.commands.setContent(parsedContent, {
+          emitUpdate: false,
+        });
+      }
     }
   }, [editingTask, editor]);
 
@@ -1239,7 +1251,10 @@ export default function TaskManager() {
 
   const handleSaveEditedTask = async () => {
     if (!editingTask) return;
-    const currentContent = editor?.getHTML() || editingTask.content;
+    // Save as stringified JSON representation of the TipTap AST
+    const currentContent = editor
+      ? JSON.stringify(editor.getJSON())
+      : editingTask.content;
 
     const activeProject = projects.find((p) => p.id === editingTask.project_id);
     const finalTeamId = activeProject?.team_id || null;
