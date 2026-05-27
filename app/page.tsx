@@ -1,16 +1,16 @@
 "use client";
 
-import { useEffect, useState, useMemo, useCallback } from "react";
 import { supabase } from "@/lib/supabase";
-import { useEditor, EditorContent } from "@tiptap/react";
-import StarterKit from "@tiptap/starter-kit";
-import Link from "@tiptap/extension-link";
-import Highlight from "@tiptap/extension-highlight";
-import { User } from "@supabase/supabase-js";
-import Image from "next/image";
 import { Turnstile } from "@marsidev/react-turnstile";
+import type { User } from "@supabase/supabase-js";
+import Highlight from "@tiptap/extension-highlight";
+import Link from "@tiptap/extension-link";
+import { EditorContent, useEditor } from "@tiptap/react";
+import StarterKit from "@tiptap/starter-kit";
+import Image from "next/image";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
-import { Project, ProjectFolder, Task, Profile } from "./types";
+import type { Profile, Project, ProjectFolder, Task } from "./types";
 import { useProjectStore } from "./useProjectStore";
 
 const TIPTAP_EXTENSIONS = [
@@ -89,11 +89,7 @@ const tryParseJSON = (jsonString: string) => {
 };
 
 const getUserTz = (profile: Profile | null) => {
-  return (
-    profile?.settings?.timezone ||
-    Intl.DateTimeFormat().resolvedOptions().timeZone ||
-    "UTC"
-  );
+  return profile?.settings?.timezone || Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC";
 };
 
 const getDateStrWithOffset = (tz: string, offsetDays: number) => {
@@ -156,21 +152,13 @@ export default function TaskManager() {
   const [memberToRemove, setMemberToRemove] = useState<Profile | null>(null);
   const [showAddMemberModal, setShowAddMemberModal] = useState(false);
   const [inviteEmail, setInviteEmail] = useState("");
-  const {
-    projects,
-    setProjects,
-    folders,
-    setFolders,
-    fetchProjectsAndFolders,
-  } = useProjectStore();
+  const { projects, setProjects, folders, setFolders, fetchProjectsAndFolders } = useProjectStore();
   const [folderInput, setFolderInput] = useState("");
   const [tasks, setTasks] = useState<Task[]>([]);
   const [selectedList, setSelectedList] = useState<string>("Inbox");
   const [newTaskTitle, setNewTaskTitle] = useState("");
   // Keep track of the manually selected project for Quick Add overrides
-  const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(
-    null,
-  );
+  const [quickAddProjectId, setQuickAddProjectId] = useState<string | null>(null);
   const [selectedPriority, setSelectedPriority] = useState(0);
   const [isAddingTask, setIsAddingTask] = useState(false);
   const [showMenuForTask, setShowMenuForTask] = useState<string | null>(null);
@@ -192,18 +180,12 @@ export default function TaskManager() {
   const [showProjectMenu, setShowProjectMenu] = useState(false);
   const [projectInput, setProjectInput] = useState("");
   const [shareProjectWithTeam, setShareProjectWithTeam] = useState(false);
-  const [showProjectIconMenu, setShowProjectIconMenu] = useState<string | null>(
-    null,
-  );
+  const [showProjectIconMenu, setShowProjectIconMenu] = useState<string | null>(null);
   const [draggedProjectId, setDraggedProjectId] = useState<string | null>(null);
-  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(
-    null,
-  );
+  const [dragOverProjectId, setDragOverProjectId] = useState<string | null>(null);
   const [draggedFolderId, setDraggedFolderId] = useState<string | null>(null);
   const [dragOverFolderId, setDragOverFolderId] = useState<string | null>(null);
-  const [taskSortOrder, setTaskSortOrder] = useState<
-    "custom" | "priority" | "date"
-  >("custom");
+  const [taskSortOrder, setTaskSortOrder] = useState<"custom" | "priority" | "date">("custom");
   const [showSortMenu, setShowSortMenu] = useState<string | null>(null);
   const [draggedTaskId, setDraggedTaskId] = useState<string | null>(null);
   const [dragOverTaskId, setDragOverTaskId] = useState<string | null>(null);
@@ -211,9 +193,7 @@ export default function TaskManager() {
   const editor = useEditor({
     extensions: TIPTAP_EXTENSIONS,
     immediatelyRender: false,
-    content: editingTask?.content
-      ? tryParseJSON(editingTask.content) || editingTask.content
-      : "",
+    content: editingTask?.content ? tryParseJSON(editingTask.content) || editingTask.content : "",
     onBlur: ({ editor }) => {
       const jsonContent = JSON.stringify(editor.getJSON());
       setEditingTask((prev) => {
@@ -321,9 +301,7 @@ export default function TaskManager() {
     if (teamError) {
       // Postgres error code 23505 is for unique constraint violations
       if (teamError.code === "23505") {
-        return alert(
-          "A team with this name already exists. Please choose a unique name.",
-        );
+        return alert("A team with this name already exists. Please choose a unique name.");
       }
       return alert(teamError.message);
     }
@@ -382,17 +360,13 @@ export default function TaskManager() {
     if (searchError) {
       console.error("Search Error:", searchError);
       if (searchError.code === "PGRST116") {
-        return alert(
-          "User not found. Ensure they have created an account first.",
-        );
+        return alert("User not found. Ensure they have created an account first.");
       }
       return alert(`Error searching for user: ${searchError.message}`);
     }
 
     if (!targetProfile) {
-      return alert(
-        "User not found. Ensure they have created an account first.",
-      );
+      return alert("User not found. Ensure they have created an account first.");
     }
 
     // 2. Check if they are already in a team
@@ -421,9 +395,7 @@ export default function TaskManager() {
       });
       setInviteEmail("");
       setShowAddMemberModal(false);
-      alert(
-        `${updatedProfile.first_name || "User"} has been added to the team!`,
-      );
+      alert(`${updatedProfile.first_name || "User"} has been added to the team!`);
     }
   };
 
@@ -436,10 +408,7 @@ export default function TaskManager() {
       )
     )
       return;
-    const { error } = await supabase
-      .from("teams")
-      .delete()
-      .eq("id", currentTeam.id);
+    const { error } = await supabase.from("teams").delete().eq("id", currentTeam.id);
     if (!error) {
       setCurrentTeam(null);
       setTeamMembers([]);
@@ -448,16 +417,8 @@ export default function TaskManager() {
   };
 
   const handleLeaveTeam = async () => {
-    if (
-      !user ||
-      !currentTeam ||
-      !confirm("Are you sure you want to leave this team?")
-    )
-      return;
-    const { error } = await supabase
-      .from("profiles")
-      .update({ team_id: null })
-      .eq("id", user.id);
+    if (!user || !currentTeam || !confirm("Are you sure you want to leave this team?")) return;
+    const { error } = await supabase.from("profiles").update({ team_id: null }).eq("id", user.id);
     if (!error) {
       setCurrentTeam(null);
       setTeamMembers([]);
@@ -515,8 +476,7 @@ export default function TaskManager() {
       if (dbError) throw dbError;
       if (updatedProfile) setProfile(updatedProfile);
     } catch (error: unknown) {
-      const message =
-        error instanceof Error ? error.message : "An unknown error occurred";
+      const message = error instanceof Error ? error.message : "An unknown error occurred";
       alert(message);
     } finally {
       setIsUploadingAvatar(false);
@@ -631,11 +591,11 @@ export default function TaskManager() {
 
   const projectTaskCounts = useMemo(() => {
     const counts: Record<string, number> = {};
-    tasks.forEach((task) => {
+    for (const task of tasks) {
       if (task.project_id) {
         counts[task.project_id] = (counts[task.project_id] || 0) + 1;
       }
-    });
+    }
     return counts;
   }, [tasks]);
 
@@ -657,14 +617,8 @@ export default function TaskManager() {
     if (!error && data) {
       setProjects((prev) => prev.map((p) => (p.id === projectId ? data : p)));
     } else if (error) {
-      if (
-        error.message.includes(
-          'column "icon" of relation "projects" does not exist',
-        )
-      ) {
-        alert(
-          "Please add an 'icon' column (type: text) to your 'projects' table in Supabase.",
-        );
+      if (error.message.includes('column "icon" of relation "projects" does not exist')) {
+        alert("Please add an 'icon' column (type: text) to your 'projects' table in Supabase.");
       } else {
         alert(`Failed to update project appearance: ${error.message}`);
       }
@@ -674,9 +628,7 @@ export default function TaskManager() {
   const handleAddProject = async () => {
     if (!projectInput.trim() || !user) return;
     const nextSortOrder =
-      projects.length > 0
-        ? Math.max(...projects.map((p) => p.sort_order || 0)) + 1
-        : 0;
+      projects.length > 0 ? Math.max(...projects.map((p) => p.sort_order || 0)) + 1 : 0;
 
     const { data, error } = await supabase
       .from("projects")
@@ -708,9 +660,7 @@ export default function TaskManager() {
     if (!folderInput.trim() || !user) return;
 
     const nextSortOrder =
-      folders.length > 0
-        ? Math.max(...folders.map((f) => f.sort_order || 0)) + 1
-        : 0;
+      folders.length > 0 ? Math.max(...folders.map((f) => f.sort_order || 0)) + 1 : 0;
 
     const { data, error } = await supabase
       .from("project_folders")
@@ -746,16 +696,12 @@ export default function TaskManager() {
       return;
     }
 
-    const { error } = await supabase
-      .from("projects")
-      .delete()
-      .eq("id", projectId);
+    const { error } = await supabase.from("projects").delete().eq("id", projectId);
     if (!error) {
       const deletedProject = projects.find((p) => p.id === projectId);
       if (
         deletedProject &&
-        (selectedList === deletedProject.id ||
-          selectedList === deletedProject.name)
+        (selectedList === deletedProject.id || selectedList === deletedProject.name)
       ) {
         setSelectedList("Inbox");
       }
@@ -777,10 +723,7 @@ export default function TaskManager() {
       return;
     }
 
-    const { error } = await supabase
-      .from("project_folders")
-      .delete()
-      .eq("id", folderId);
+    const { error } = await supabase.from("project_folders").delete().eq("id", folderId);
     if (!error) {
       if (selectedList === folderId) setSelectedList("Inbox");
       setFolders((prev) => prev.filter((f) => f.id !== folderId));
@@ -834,9 +777,7 @@ export default function TaskManager() {
     const [removed] = newProjects.splice(sourceIndex, 1);
     removed.folder_id = folderId;
 
-    const firstProjectInFolderIndex = newProjects.findIndex(
-      (p) => p.folder_id === folderId,
-    );
+    const firstProjectInFolderIndex = newProjects.findIndex((p) => p.folder_id === folderId);
     if (firstProjectInFolderIndex !== -1) {
       newProjects.splice(firstProjectInFolderIndex, 0, removed);
     } else {
@@ -883,10 +824,7 @@ export default function TaskManager() {
 
     Promise.all(
       updatedFolders.map((f) =>
-        supabase
-          .from("project_folders")
-          .update({ sort_order: f.sort_order })
-          .eq("id", f.id),
+        supabase.from("project_folders").update({ sort_order: f.sort_order }).eq("id", f.id),
       ),
     ).catch((err) => console.error("Failed to save folder sort order", err));
   };
@@ -931,10 +869,7 @@ export default function TaskManager() {
     ).catch((err) => console.error("Failed to save project drop", err));
   };
 
-  const handleTaskDrop = async (
-    targetTaskId: string | null,
-    targetProjectId: string | null,
-  ) => {
+  const handleTaskDrop = async (targetTaskId: string | null, targetProjectId: string | null) => {
     if (!draggedTaskId) return;
     if (draggedTaskId === targetTaskId) return;
 
@@ -952,15 +887,11 @@ export default function TaskManager() {
     }
 
     const targetTasks = newTasks.filter(
-      (t) =>
-        t.project_id === removed.project_id &&
-        t.parent_id === removed.parent_id,
+      (t) => t.project_id === removed.project_id && t.parent_id === removed.parent_id,
     );
 
     if (targetTaskId) {
-      const targetIndexInFiltered = targetTasks.findIndex(
-        (t) => t.id === targetTaskId,
-      );
+      const targetIndexInFiltered = targetTasks.findIndex((t) => t.id === targetTaskId);
       if (targetIndexInFiltered !== -1) {
         targetTasks.splice(targetIndexInFiltered, 0, removed);
       } else {
@@ -976,13 +907,7 @@ export default function TaskManager() {
     }));
 
     const finalTasks = newTasks
-      .filter(
-        (t) =>
-          !(
-            t.project_id === removed.project_id &&
-            t.parent_id === removed.parent_id
-          ),
-      )
+      .filter((t) => !(t.project_id === removed.project_id && t.parent_id === removed.parent_id))
       .concat(updatedTasks);
 
     setTasks(finalTasks);
@@ -1011,15 +936,12 @@ export default function TaskManager() {
 
     const isVisibleInList = (task: Task) => {
       if (lower === "inbox") {
-        const isMineOrAssignedToMe =
-          task.user_id === user?.id || task.assigned_to === user?.id;
+        const isMineOrAssignedToMe = task.user_id === user?.id || task.assigned_to === user?.id;
         const hasNoProject = !task.project_id || task.project_id === inboxId;
         return isMineOrAssignedToMe && hasNoProject;
       }
       if (lower === "today") {
-        return task.due_date
-          ? task.due_date.split("T")[0] === getDateStrWithOffset(tz, 0)
-          : false;
+        return task.due_date ? task.due_date.split("T")[0] === getDateStrWithOffset(tz, 0) : false;
       }
       if (lower === "next 7 days") {
         if (!task.due_date) return false;
@@ -1052,20 +974,18 @@ export default function TaskManager() {
             if (!a.due_date && b.due_date) return 1;
             if (a.due_date && !b.due_date) return -1;
             return (a.due_date || "").localeCompare(b.due_date || "");
-          } else if (taskSortOrder === "date") {
+          }
+          if (taskSortOrder === "date") {
             if (!a.due_date && b.due_date) return 1;
             if (a.due_date && !b.due_date) return -1;
-            const dateCompare = (a.due_date || "").localeCompare(
-              b.due_date || "",
-            );
+            const dateCompare = (a.due_date || "").localeCompare(b.due_date || "");
             if (dateCompare !== 0) return dateCompare;
             return b.priority - a.priority;
-          } else {
-            return (a.sort_order || 0) - (b.sort_order || 0);
           }
+          return (a.sort_order || 0) - (b.sort_order || 0);
         });
 
-      children.forEach((task) => {
+      for (const task of children) {
         const hasVisibleChild = (id: string): boolean => {
           const subs = tasks.filter((t) => t.parent_id === id);
           return subs.some((s) => isVisibleInList(s) || hasVisibleChild(s.id));
@@ -1075,20 +995,12 @@ export default function TaskManager() {
           result.push(task);
           flatten(task.id);
         }
-      });
+      }
     };
 
     flatten(null);
     return result;
-  }, [
-    tasks,
-    selectedList,
-    projects,
-    user?.id,
-    profile,
-    folders,
-    taskSortOrder,
-  ]);
+  }, [tasks, selectedList, projects, user?.id, profile, folders, taskSortOrder]);
 
   // Assignment Notification Logic
   useEffect(() => {
@@ -1199,10 +1111,7 @@ export default function TaskManager() {
     }
   };
 
-  const toggleTaskStatus = async (
-    taskId: string,
-    currentStatus: string | null,
-  ) => {
+  const toggleTaskStatus = async (taskId: string, currentStatus: string | null) => {
     const newStatus = currentStatus === "done" ? "todo" : "done";
 
     if (newStatus === "done") {
@@ -1218,9 +1127,7 @@ export default function TaskManager() {
     }
 
     setTasks((prev) =>
-      prev.map((task) =>
-        task.id === taskId ? { ...task, status: newStatus } : task,
-      ),
+      prev.map((task) => (task.id === taskId ? { ...task, status: newStatus } : task)),
     );
 
     const { error } = await supabase
@@ -1234,9 +1141,7 @@ export default function TaskManager() {
       alert("Failed to update task. You may not have permission.");
       setTasks((prev) =>
         prev.map((task) =>
-          task.id === taskId
-            ? { ...task, status: currentStatus ?? "todo" }
-            : task,
+          task.id === taskId ? { ...task, status: currentStatus ?? "todo" } : task,
         ),
       );
     }
@@ -1252,9 +1157,7 @@ export default function TaskManager() {
   const handleSaveEditedTask = async () => {
     if (!editingTask) return;
     // Save as stringified JSON representation of the TipTap AST
-    const currentContent = editor
-      ? JSON.stringify(editor.getJSON())
-      : editingTask.content;
+    const currentContent = editor ? JSON.stringify(editor.getJSON()) : editingTask.content;
 
     const activeProject = projects.find((p) => p.id === editingTask.project_id);
     const finalTeamId = activeProject?.team_id || null;
@@ -1295,15 +1198,11 @@ export default function TaskManager() {
     setEditingTask(null);
   };
 
-  const personalProjects = projects.filter(
-    (p) => !p.team_id && !SMART_LISTS.includes(p.name),
-  );
+  const personalProjects = projects.filter((p) => !p.team_id && !SMART_LISTS.includes(p.name));
 
   const personalFolders = folders.filter((f) => !f.team_id);
 
-  const sharedProjects = projects.filter(
-    (p) => p.team_id && !SMART_LISTS.includes(p.name),
-  );
+  const sharedProjects = projects.filter((p) => p.team_id && !SMART_LISTS.includes(p.name));
 
   const sharedFolders = folders.filter((f) => f.team_id);
 
@@ -1311,10 +1210,7 @@ export default function TaskManager() {
     if (showSortMenu !== menuId) return null;
     return (
       <>
-        <div
-          className="fixed inset-0 z-40"
-          onClick={() => setShowSortMenu(null)}
-        />
+        <div className="fixed inset-0 z-40" onClick={() => setShowSortMenu(null)} />
         <div className="absolute right-0 top-full mt-2 w-36 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl py-1 z-50">
           <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-1 px-4 mt-2">
             Sort Order
@@ -1366,10 +1262,7 @@ export default function TaskManager() {
     );
   };
 
-  const renderProjectList = (
-    projectList: Project[],
-    folderList: ProjectFolder[],
-  ) => {
+  const renderProjectList = (projectList: Project[], folderList: ProjectFolder[]) => {
     const looseProjects = projectList.filter((p) => !p.folder_id);
     return (
       <>
@@ -1408,15 +1301,10 @@ export default function TaskManager() {
                 }
               }}
               className={`flex items-center pr-2 pl-1 rounded-lg transition-colors border-2 ${
-                dragOverFolderId === folder.id ||
-                dragOverProjectId === folder.id
+                dragOverFolderId === folder.id || dragOverProjectId === folder.id
                   ? "border-[#3b82f6]"
                   : "border-transparent"
-              } ${
-                selectedList === folder.id
-                  ? "bg-[#1e2130]"
-                  : "hover:bg-[#1e2130]"
-              }`}
+              } ${selectedList === folder.id ? "bg-[#1e2130]" : "hover:bg-[#1e2130]"}`}
             >
               <div className="cursor-grab active:cursor-grabbing text-[#4b5563] hover:text-[#9ca3af] transition-colors flex-shrink-0 px-1">
                 <svg
@@ -1429,9 +1317,9 @@ export default function TaskManager() {
                   strokeLinecap="round"
                   strokeLinejoin="round"
                 >
-                  <line x1="3" y1="12" x2="21" y2="12"></line>
-                  <line x1="3" y1="6" x2="21" y2="6"></line>
-                  <line x1="3" y1="18" x2="21" y2="18"></line>
+                  <line x1="3" y1="12" x2="21" y2="12" />
+                  <line x1="3" y1="6" x2="21" y2="6" />
+                  <line x1="3" y1="18" x2="21" y2="18" />
                 </svg>
               </div>
               <button
@@ -1445,9 +1333,7 @@ export default function TaskManager() {
               </button>
             </div>
             <div className="ml-3 pl-2 mt-1 border-l border-[#374151] space-y-1">
-              {projectList
-                .filter((p) => p.folder_id === folder.id)
-                .map(renderSingleProject)}
+              {projectList.filter((p) => p.folder_id === folder.id).map(renderSingleProject)}
             </div>
           </div>
         ))}
@@ -1460,9 +1346,7 @@ export default function TaskManager() {
     <div
       key={project.id}
       className={`relative group/project flex items-center pr-2 pl-1 rounded-lg transition-colors border-2 ${
-        dragOverProjectId === project.id
-          ? "border-[#3b82f6]"
-          : "border-transparent"
+        dragOverProjectId === project.id ? "border-[#3b82f6]" : "border-transparent"
       } ${selectedList === project.id ? "bg-[#1e2130]" : "hover:bg-[#1e2130]"}`}
       draggable
       onDragStart={(e) => {
@@ -1497,9 +1381,9 @@ export default function TaskManager() {
           strokeLinecap="round"
           strokeLinejoin="round"
         >
-          <line x1="3" y1="12" x2="21" y2="12"></line>
-          <line x1="3" y1="6" x2="21" y2="6"></line>
-          <line x1="3" y1="18" x2="21" y2="18"></line>
+          <line x1="3" y1="12" x2="21" y2="12" />
+          <line x1="3" y1="6" x2="21" y2="6" />
+          <line x1="3" y1="18" x2="21" y2="18" />
         </svg>
       </div>
       <button
@@ -1511,9 +1395,7 @@ export default function TaskManager() {
         <div
           onClick={(e) => {
             e.stopPropagation();
-            setShowProjectIconMenu(
-              showProjectIconMenu === project.id ? null : project.id,
-            );
+            setShowProjectIconMenu(showProjectIconMenu === project.id ? null : project.id);
           }}
           className="relative flex items-center justify-center w-5 h-5 -ml-1 rounded hover:bg-[#374151] transition-colors cursor-pointer flex-shrink-0"
           title="Change icon or color"
@@ -1521,10 +1403,7 @@ export default function TaskManager() {
           {project.icon ? (
             <span className="text-xs">{project.icon}</span>
           ) : (
-            <div
-              className="w-2 h-2 rounded-full"
-              style={{ backgroundColor: project.colour }}
-            />
+            <div className="w-2 h-2 rounded-full" style={{ backgroundColor: project.colour }} />
           )}
         </div>
         <span className="truncate">{project.name}</span>
@@ -1532,10 +1411,7 @@ export default function TaskManager() {
 
       {showProjectIconMenu === project.id && (
         <>
-          <div
-            className="fixed inset-0 z-40"
-            onClick={() => setShowProjectIconMenu(null)}
-          />
+          <div className="fixed inset-0 z-40" onClick={() => setShowProjectIconMenu(null)} />
           <div
             draggable={true}
             onDragStart={(e) => {
@@ -1544,9 +1420,7 @@ export default function TaskManager() {
             }}
             className="absolute left-8 top-8 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50 animate-in fade-in zoom-in duration-200 cursor-default"
           >
-            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
-              Colors
-            </p>
+            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">Colors</p>
             <div className="flex flex-wrap gap-2 mb-4">
               {PROJECT_COLORS.map((color) => (
                 <button
@@ -1563,9 +1437,7 @@ export default function TaskManager() {
                 />
               ))}
             </div>
-            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">
-              Icons
-            </p>
+            <p className="text-[10px] uppercase font-bold text-[#6b7280] mb-2">Icons</p>
             <div className="grid grid-cols-6 gap-2">
               {PROJECT_ICONS.map((icon) => (
                 <button
@@ -1608,12 +1480,10 @@ export default function TaskManager() {
     </div>
   );
 
-  const renderTaskNode = (task: Task, compact: boolean = false) => {
+  const renderTaskNode = (task: Task, compact = false) => {
     const tz = getUserTz(profile);
     const isOverdue = task.due_date ? isPastDateStr(task.due_date, tz) : false;
-    const dateLabel = task.due_date
-      ? formatDateShortStr(task.due_date, tz)
-      : null;
+    const dateLabel = task.due_date ? formatDateShortStr(task.due_date, tz) : null;
     const depth = getTaskDepth(task);
     const isCompleted = task.status === "done";
 
@@ -1678,9 +1548,9 @@ export default function TaskManager() {
               strokeLinecap="round"
               strokeLinejoin="round"
             >
-              <line x1="3" y1="12" x2="21" y2="12"></line>
-              <line x1="3" y1="6" x2="21" y2="6"></line>
-              <line x1="3" y1="18" x2="21" y2="18"></line>
+              <line x1="3" y1="12" x2="21" y2="12" />
+              <line x1="3" y1="6" x2="21" y2="6" />
+              <line x1="3" y1="18" x2="21" y2="18" />
             </svg>
           </div>
         )}
@@ -1725,9 +1595,9 @@ export default function TaskManager() {
 
         {!compact && task.tags?.length > 0 && (
           <div className="flex gap-1 ml-auto mr-2 shrink-0">
-            {task.tags.slice(0, 4).map((tag, i) => (
+            {task.tags.slice(0, 4).map((tag) => (
               <span
-                key={i}
+                key={tag}
                 className="text-[9px] px-1.5 py-0 rounded-full border border-[#374151] bg-[#1e2130] text-[#9ca3af]"
               >
                 {tag}
@@ -1750,9 +1620,7 @@ export default function TaskManager() {
 
         <div className="relative shrink-0" onClick={(e) => e.stopPropagation()}>
           <button
-            onClick={() =>
-              setShowMenuForTask(showMenuForTask === task.id ? null : task.id)
-            }
+            onClick={() => setShowMenuForTask(showMenuForTask === task.id ? null : task.id)}
             className="text-[#6b7280] hover:text-white px-2 py-1 text-lg leading-none"
           >
             ⋯
@@ -1760,10 +1628,7 @@ export default function TaskManager() {
 
           {showMenuForTask === task.id && (
             <>
-              <div
-                className="fixed inset-0 z-40"
-                onClick={() => setShowMenuForTask(null)}
-              />
+              <div className="fixed inset-0 z-40" onClick={() => setShowMenuForTask(null)} />
               <div className="absolute right-0 mt-1 w-40 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50">
                 <button
                   onClick={async () => {
@@ -1777,9 +1642,7 @@ export default function TaskManager() {
                     if (!error) {
                       setTasks((prev) => prev.filter((t) => t.id !== task.id));
                     } else {
-                      alert(
-                        "Failed to delete task. You may not have permission.",
-                      );
+                      alert("Failed to delete task. You may not have permission.");
                     }
                     setShowMenuForTask(null);
                   }}
@@ -1856,10 +1719,7 @@ export default function TaskManager() {
             <div className="flex justify-center pt-2">
               <Turnstile
                 key={captchaKey}
-                siteKey={
-                  process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY ||
-                  "1x00000000000000000000AA"
-                }
+                siteKey={process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY || "1x00000000000000000000AA"}
                 onSuccess={setCaptchaToken}
                 onExpire={() => setCaptchaToken("")}
                 onError={(err) => {
@@ -1874,20 +1734,14 @@ export default function TaskManager() {
               disabled={isSubmitting}
               className="w-full bg-[#3b82f6] hover:bg-[#2563eb] text-white font-medium py-3 rounded-lg transition-colors disabled:opacity-50"
             >
-              {isSubmitting
-                ? "Processing..."
-                : isSignUp
-                  ? "Sign Up"
-                  : "Sign In"}
+              {isSubmitting ? "Processing..." : isSignUp ? "Sign Up" : "Sign In"}
             </button>
           </form>
           <button
             onClick={() => setIsSignUp(!isSignUp)}
             className="w-full mt-6 text-sm text-[#6b7280] hover:text-white transition-colors"
           >
-            {isSignUp
-              ? "Already have an account? Sign In"
-              : "Don't have an account? Sign Up"}
+            {isSignUp ? "Already have an account? Sign In" : "Don't have an account? Sign Up"}
           </button>
         </div>
       </div>
@@ -1977,18 +1831,12 @@ export default function TaskManager() {
             />
           ) : (
             <div className="w-8 h-8 rounded-full bg-[#3b82f6] flex items-center justify-center text-white text-xs font-bold shadow-inner flex-shrink-0">
-              {(
-                profile?.first_name?.[0] ||
-                user?.email?.[0] ||
-                "U"
-              ).toUpperCase()}
+              {(profile?.first_name?.[0] || user?.email?.[0] || "U").toUpperCase()}
             </div>
           )}
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-white truncate">
-              {profile?.first_name
-                ? `${profile.first_name} ${profile.last_name || ""}`
-                : "User"}
+              {profile?.first_name ? `${profile.first_name} ${profile.last_name || ""}` : "User"}
             </p>
             <p className="text-[10px] text-[#6b7280] truncate">{user?.email}</p>
           </div>
@@ -2000,18 +1848,14 @@ export default function TaskManager() {
         </div>
 
         <div className="mb-6">
-          <p className="text-xs uppercase tracking-widest text-[#6b7280] mb-2 px-2">
-            Smart Lists
-          </p>
+          <p className="text-xs uppercase tracking-widest text-[#6b7280] mb-2 px-2">Smart Lists</p>
           <div className="space-y-1">
             {SMART_LISTS.map((list) => (
               <button
                 key={list}
                 onClick={() => setSelectedList(list)}
                 className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                  selectedList === list
-                    ? "bg-[#1e2130] text-white"
-                    : "hover:bg-[#1e2130]"
+                  selectedList === list ? "bg-[#1e2130] text-white" : "hover:bg-[#1e2130]"
                 }`}
               >
                 {list}
@@ -2038,9 +1882,7 @@ export default function TaskManager() {
               }
             }}
           >
-            <p className="text-xs uppercase tracking-widest text-[#6b7280]">
-              Projects
-            </p>
+            <p className="text-xs uppercase tracking-widest text-[#6b7280]">Projects</p>
             <div className="relative">
               <button
                 onClick={() => setShowProjectMenu(!showProjectMenu)}
@@ -2051,10 +1893,7 @@ export default function TaskManager() {
 
               {showProjectMenu && (
                 <>
-                  <div
-                    className="fixed inset-0 z-40"
-                    onClick={() => setShowProjectMenu(false)}
-                  />
+                  <div className="fixed inset-0 z-40" onClick={() => setShowProjectMenu(false)} />
                   <div className="absolute left-0 mt-2 w-64 bg-[#1e2130] border border-[#374151] rounded-lg shadow-xl p-3 z-50">
                     <div className="flex gap-2 mb-3">
                       <input
@@ -2099,9 +1938,7 @@ export default function TaskManager() {
                           type="checkbox"
                           id="share-project"
                           checked={shareProjectWithTeam}
-                          onChange={(e) =>
-                            setShareProjectWithTeam(e.target.checked)
-                          }
+                          onChange={(e) => setShareProjectWithTeam(e.target.checked)}
                           className="w-3 h-3 accent-[#3b82f6]"
                         />
                         <label
@@ -2121,13 +1958,10 @@ export default function TaskManager() {
                     <div className="w-full h-px bg-[#374151] my-3" />
                     <div className="space-y-1 max-h-48 overflow-y-auto pr-1">
                       {folders.map((folder) => {
-                        const hasProjects = projects.some(
-                          (p) => p.folder_id === folder.id,
-                        );
+                        const hasProjects = projects.some((p) => p.folder_id === folder.id);
                         const isShared = !!folder.team_id;
                         const canDelete =
-                          !hasProjects &&
-                          (!isShared || currentTeam?.admin_id === user?.id);
+                          !hasProjects && (!isShared || currentTeam?.admin_id === user?.id);
                         return (
                           <div
                             key={`folder-${folder.id}`}
@@ -2158,27 +1992,19 @@ export default function TaskManager() {
                               <div className="w-[14px] h-[14px] flex-shrink-0" />
                             )}
                             <div className="flex items-center gap-2 min-w-0 flex-1">
-                              <span className="text-[10px] flex-shrink-0">
-                                📁
-                              </span>
-                              <span className="text-xs truncate">
-                                {folder.name}
-                              </span>
+                              <span className="text-[10px] flex-shrink-0">📁</span>
+                              <span className="text-xs truncate">{folder.name}</span>
                             </div>
                           </div>
                         );
                       })}
                       {projects
-                        .filter(
-                          (project) => !SMART_LISTS.includes(project.name),
-                        )
+                        .filter((project) => !SMART_LISTS.includes(project.name))
                         .map((project) => {
-                          const hasTasks =
-                            (projectTaskCounts[project.id] || 0) > 0;
+                          const hasTasks = (projectTaskCounts[project.id] || 0) > 0;
                           const isShared = !!project.team_id;
                           const canDelete =
-                            !hasTasks &&
-                            (!isShared || currentTeam?.admin_id === user?.id);
+                            !hasTasks && (!isShared || currentTeam?.admin_id === user?.id);
                           return (
                             <div
                               key={`project-${project.id}`}
@@ -2186,9 +2012,7 @@ export default function TaskManager() {
                             >
                               {canDelete ? (
                                 <button
-                                  onClick={() =>
-                                    handleDeleteProject(project.id)
-                                  }
+                                  onClick={() => handleDeleteProject(project.id)}
                                   className="text-[#6b7280] hover:text-red-400 transition-colors flex-shrink-0"
                                   title="Delete Project"
                                 >
@@ -2213,9 +2037,7 @@ export default function TaskManager() {
                               <div className="flex items-center gap-2 min-w-0 flex-1">
                                 <div className="w-4 h-4 flex items-center justify-center flex-shrink-0">
                                   {project.icon ? (
-                                    <span className="text-[10px]">
-                                      {project.icon}
-                                    </span>
+                                    <span className="text-[10px]">{project.icon}</span>
                                   ) : (
                                     <div
                                       className="w-2 h-2 rounded-full"
@@ -2225,9 +2047,7 @@ export default function TaskManager() {
                                     />
                                   )}
                                 </div>
-                                <span className="text-xs truncate">
-                                  {project.name}
-                                </span>
+                                <span className="text-xs truncate">{project.name}</span>
                               </div>
                             </div>
                           );
@@ -2278,9 +2098,7 @@ export default function TaskManager() {
                   }
                 }}
               >
-                <p className="text-xs uppercase tracking-widest text-[#6b7280]">
-                  Shared Projects
-                </p>
+                <p className="text-xs uppercase tracking-widest text-[#6b7280]">Shared Projects</p>
               </div>
               <div className="space-y-1 pb-2 relative">
                 {renderProjectList(sharedProjects, sharedFolders)}
@@ -2312,9 +2130,7 @@ export default function TaskManager() {
         {(() => {
           const selectedFolder = folders.find((f) => f.id === selectedList);
           if (selectedFolder) {
-            const folderProjects = projects.filter(
-              (p) => p.folder_id === selectedFolder.id,
-            );
+            const folderProjects = projects.filter((p) => p.folder_id === selectedFolder.id);
             return (
               <div className="flex-1 overflow-x-auto p-6 flex gap-6 items-start h-full">
                 {folderProjects.map((project) => (
@@ -2344,14 +2160,8 @@ export default function TaskManager() {
                         type="text"
                         placeholder="Quick add task..."
                         onKeyDown={(e) => {
-                          if (
-                            e.key === "Enter" &&
-                            e.currentTarget.value.trim()
-                          ) {
-                            handleBoardQuickAdd(
-                              project.id,
-                              e.currentTarget.value,
-                            );
+                          if (e.key === "Enter" && e.currentTarget.value.trim()) {
+                            handleBoardQuickAdd(project.id, e.currentTarget.value);
                             e.currentTarget.value = "";
                           }
                         }}
@@ -2372,11 +2182,11 @@ export default function TaskManager() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
-                          <path d="M11 5h10"></path>
-                          <path d="M11 9h7"></path>
-                          <path d="M11 13h4"></path>
-                          <path d="M3 17l3 3 3-3"></path>
-                          <path d="M6 18V4"></path>
+                          <path d="M11 5h10" />
+                          <path d="M11 9h7" />
+                          <path d="M11 13h4" />
+                          <path d="M3 17l3 3 3-3" />
+                          <path d="M6 18V4" />
                         </svg>
                       </button>
                       {renderSortMenu(project.id)}
@@ -2400,32 +2210,25 @@ export default function TaskManager() {
                       }}
                     >
                       {displayedTasks
-                        .filter(
-                          (t) =>
-                            t.project_id === project.id && t.status !== "done",
-                        )
+                        .filter((t) => t.project_id === project.id && t.status !== "done")
                         .map((task) => renderTaskNode(task, true))}
 
                       {displayedTasks.some(
-                        (t) =>
-                          t.project_id === project.id && t.status === "done",
+                        (t) => t.project_id === project.id && t.status === "done",
                       ) && (
                         <div className="pt-4 pb-2">
                           <div className="flex items-center gap-4">
-                            <div className="h-px bg-[#374151] flex-1"></div>
+                            <div className="h-px bg-[#374151] flex-1" />
                             <span className="text-[10px] font-bold uppercase tracking-widest text-[#6b7280]">
                               Completed
                             </span>
-                            <div className="h-px bg-[#374151] flex-1"></div>
+                            <div className="h-px bg-[#374151] flex-1" />
                           </div>
                         </div>
                       )}
 
                       {displayedTasks
-                        .filter(
-                          (t) =>
-                            t.project_id === project.id && t.status === "done",
-                        )
+                        .filter((t) => t.project_id === project.id && t.status === "done")
                         .map((task) => renderTaskNode(task, true))}
 
                       {dragOverTaskId === `project-${project.id}` && (
@@ -2472,10 +2275,7 @@ export default function TaskManager() {
                               onClick={() => setShowDatePicker(!showDatePicker)}
                               className={`transition-colors px-1 flex items-center justify-center ${
                                 selectedDate
-                                  ? isPastDateStr(
-                                      selectedDate,
-                                      getUserTz(profile),
-                                    )
+                                  ? isPastDateStr(selectedDate, getUserTz(profile))
                                     ? "text-red-500"
                                     : "text-[#3b82f6]"
                                   : "text-[#6b7280] hover:text-white"
@@ -2493,17 +2293,10 @@ export default function TaskManager() {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               >
-                                <rect
-                                  x="3"
-                                  y="4"
-                                  width="18"
-                                  height="18"
-                                  rx="2"
-                                  ry="2"
-                                ></rect>
-                                <line x1="16" y1="2" x2="16" y2="6"></line>
-                                <line x1="8" y1="2" x2="8" y2="6"></line>
-                                <line x1="3" y1="10" x2="21" y2="10"></line>
+                                <rect x="3" y="4" width="18" height="18" rx="2" ry="2" />
+                                <line x1="16" y1="2" x2="16" y2="6" />
+                                <line x1="8" y1="2" x2="8" y2="6" />
+                                <line x1="3" y1="10" x2="21" y2="10" />
                               </svg>
                             </button>
 
@@ -2518,10 +2311,7 @@ export default function TaskManager() {
                                     <button
                                       onClick={() => {
                                         setSelectedDate(
-                                          getDateStrWithOffset(
-                                            getUserTz(profile),
-                                            0,
-                                          ),
+                                          getDateStrWithOffset(getUserTz(profile), 0),
                                         );
                                         setShowDatePicker(false);
                                       }}
@@ -2533,36 +2323,26 @@ export default function TaskManager() {
                                     <button
                                       onClick={() => {
                                         setSelectedDate(
-                                          getDateStrWithOffset(
-                                            getUserTz(profile),
-                                            1,
-                                          ),
+                                          getDateStrWithOffset(getUserTz(profile), 1),
                                         );
                                         setShowDatePicker(false);
                                       }}
                                       className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
                                     >
                                       <span>Tomorrow</span>
-                                      <span className="text-[#6b7280]">
-                                        +1d
-                                      </span>
+                                      <span className="text-[#6b7280]">+1d</span>
                                     </button>
                                     <button
                                       onClick={() => {
                                         setSelectedDate(
-                                          getDateStrWithOffset(
-                                            getUserTz(profile),
-                                            7,
-                                          ),
+                                          getDateStrWithOffset(getUserTz(profile), 7),
                                         );
                                         setShowDatePicker(false);
                                       }}
                                       className="w-full px-2 py-1.5 text-left text-xs hover:bg-[#374151] rounded transition-colors flex justify-between"
                                     >
                                       <span>Next Week</span>
-                                      <span className="text-[#6b7280]">
-                                        +7d
-                                      </span>
+                                      <span className="text-[#6b7280]">+7d</span>
                                     </button>
                                   </div>
                                   <div className="px-2">
@@ -2603,18 +2383,13 @@ export default function TaskManager() {
                                   : "text-[#3b82f6]"
                               }`}
                             >
-                              {formatDateShortStr(
-                                selectedDate,
-                                getUserTz(profile),
-                              )}
+                              {formatDateShortStr(selectedDate, getUserTz(profile))}
                             </span>
                           )}
 
                           <div className="relative">
                             <button
-                              onClick={() =>
-                                setShowPriorityMenu(!showPriorityMenu)
-                              }
+                              onClick={() => setShowPriorityMenu(!showPriorityMenu)}
                               className={`transition-colors px-1 flex items-center justify-center ${
                                 selectedPriority === 5
                                   ? "text-red-500"
@@ -2630,11 +2405,7 @@ export default function TaskManager() {
                                 width="18"
                                 height="18"
                                 viewBox="0 0 24 24"
-                                fill={
-                                  selectedPriority === 0
-                                    ? "none"
-                                    : "currentColor"
-                                }
+                                fill={selectedPriority === 0 ? "none" : "currentColor"}
                                 stroke="currentColor"
                                 strokeWidth="2"
                                 strokeLinecap="round"
@@ -2660,8 +2431,7 @@ export default function TaskManager() {
                                     }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                                   >
-                                    <span className="text-[#6b7280]">●</span>{" "}
-                                    None
+                                    <span className="text-[#6b7280]">●</span> None
                                   </button>
                                   <button
                                     onClick={() => {
@@ -2679,8 +2449,7 @@ export default function TaskManager() {
                                     }}
                                     className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                                   >
-                                    <span className="text-orange-500">●</span>{" "}
-                                    Medium
+                                    <span className="text-orange-500">●</span> Medium
                                   </button>
                                   <button
                                     onClick={() => {
@@ -2730,9 +2499,7 @@ export default function TaskManager() {
                                       type="text"
                                       placeholder="Tag name..."
                                       value={tagInput}
-                                      onChange={(e) =>
-                                        setTagInput(e.target.value)
-                                      }
+                                      onChange={(e) => setTagInput(e.target.value)}
                                       onKeyDown={(e) => {
                                         if (
                                           e.key === "Enter" &&
@@ -2741,10 +2508,10 @@ export default function TaskManager() {
                                         ) {
                                           e.preventDefault();
                                           e.stopPropagation();
-                                          setNewTags([
-                                            ...newTags,
-                                            tagInput.trim(),
-                                          ]);
+                                          const trimmed = tagInput.trim();
+                                          if (!newTags.includes(trimmed)) {
+                                            setNewTags([...newTags, trimmed]);
+                                          }
                                           setTagInput("");
                                         }
                                       }}
@@ -2752,19 +2519,15 @@ export default function TaskManager() {
                                     />
                                   </div>
                                   <div className="flex flex-wrap gap-1">
-                                    {newTags.map((tag, i) => (
+                                    {newTags.map((tag) => (
                                       <span
-                                        key={i}
+                                        key={tag}
                                         className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] flex items-center gap-1"
                                       >
                                         {tag}
                                         <button
                                           onClick={() =>
-                                            setNewTags(
-                                              newTags.filter(
-                                                (_, index) => index !== i,
-                                              ),
-                                            )
+                                            setNewTags(newTags.filter((t) => t !== tag))
                                           }
                                           className="hover:text-red-400"
                                         >
@@ -2773,9 +2536,7 @@ export default function TaskManager() {
                                       </span>
                                     ))}
                                     {newTags.length === 0 && (
-                                      <p className="text-[10px] text-[#6b7280]">
-                                        No tags added
-                                      </p>
+                                      <p className="text-[10px] text-[#6b7280]">No tags added</p>
                                     )}
                                   </div>
                                 </div>
@@ -2785,11 +2546,7 @@ export default function TaskManager() {
 
                           <div className="relative">
                             <button
-                              onClick={() =>
-                                setShowQuickAddProjectMenu(
-                                  !showQuickAddProjectMenu,
-                                )
-                              }
+                              onClick={() => setShowQuickAddProjectMenu(!showQuickAddProjectMenu)}
                               className={`transition-colors px-1 flex items-center justify-center ${quickAddProjectId ? "text-[#3b82f6]" : "text-[#6b7280] hover:text-white"}`}
                               title="Assign project"
                             >
@@ -2812,9 +2569,7 @@ export default function TaskManager() {
                               <>
                                 <div
                                   className="fixed inset-0 z-40"
-                                  onClick={() =>
-                                    setShowQuickAddProjectMenu(false)
-                                  }
+                                  onClick={() => setShowQuickAddProjectMenu(false)}
                                 />
                                 <div className="absolute left-0 mt-2 w-48 bg-[#1e2130] border border-[#374151] rounded-lg shadow-lg py-1 z-50 overflow-hidden">
                                   <button
@@ -2830,9 +2585,7 @@ export default function TaskManager() {
                                     Inbox
                                   </button>
                                   {projects
-                                    .filter(
-                                      (p) => !SMART_LISTS.includes(p.name),
-                                    )
+                                    .filter((p) => !SMART_LISTS.includes(p.name))
                                     .map((project) => (
                                       <button
                                         key={project.id}
@@ -2864,9 +2617,7 @@ export default function TaskManager() {
                           <span className="text-xs text-[#3b82f6] font-medium">
                             {(() => {
                               if (!quickAddProjectId) return "";
-                              const p = projects.find(
-                                (p) => p.id === quickAddProjectId,
-                              );
+                              const p = projects.find((p) => p.id === quickAddProjectId);
                               if (!p) return "";
                               return p.icon ? `${p.icon} ${p.name}` : p.name;
                             })()}
@@ -2913,11 +2664,11 @@ export default function TaskManager() {
                       strokeLinecap="round"
                       strokeLinejoin="round"
                     >
-                      <path d="M11 5h10"></path>
-                      <path d="M11 9h7"></path>
-                      <path d="M11 13h4"></path>
-                      <path d="M3 17l3 3 3-3"></path>
-                      <path d="M6 18V4"></path>
+                      <path d="M11 5h10" />
+                      <path d="M11 9h7" />
+                      <path d="M11 13h4" />
+                      <path d="M3 17l3 3 3-3" />
+                      <path d="M6 18V4" />
                     </svg>
                   </button>
                   {renderSortMenu("main")}
@@ -2955,11 +2706,11 @@ export default function TaskManager() {
                   {displayedTasks.some((t) => t.status === "done") && (
                     <div className="pt-8 pb-4">
                       <div className="flex items-center gap-4">
-                        <div className="h-px bg-[#1e2130] flex-1"></div>
+                        <div className="h-px bg-[#1e2130] flex-1" />
                         <span className="text-[10px] font-bold uppercase tracking-widest text-[#6b7280] whitespace-nowrap">
                           Completed
                         </span>
-                        <div className="h-px bg-[#1e2130] flex-1"></div>
+                        <div className="h-px bg-[#1e2130] flex-1" />
                       </div>
                     </div>
                   )}
@@ -3043,11 +2794,7 @@ export default function TaskManager() {
                     />
                   ) : (
                     <div className="w-12 h-12 rounded-full bg-[#3b82f6] flex items-center justify-center text-white font-bold">
-                      {(
-                        editProfileFirstName?.[0] ||
-                        user?.email?.[0] ||
-                        "U"
-                      ).toUpperCase()}
+                      {(editProfileFirstName?.[0] || user?.email?.[0] || "U").toUpperCase()}
                     </div>
                   )}
                   <div className="flex-1">
@@ -3120,9 +2867,9 @@ export default function TaskManager() {
                                 strokeLinecap="round"
                                 strokeLinejoin="round"
                               >
-                                <path d="M3 6h18"></path>
-                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6"></path>
-                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2"></path>
+                                <path d="M3 6h18" />
+                                <path d="M19 6v14c0 1-1 2-2 2H7c-1 0-2-1-2-2V6" />
+                                <path d="M8 6V4c0-1 1-2 2-2h4c1 0 2 1 2 2v2" />
                               </svg>
                             </button>
                           </div>
@@ -3157,16 +2904,15 @@ export default function TaskManager() {
                             className="flex items-center gap-1.5 px-2 py-1 rounded bg-[#1e2130] border border-[#374151] text-[11px] text-white"
                           >
                             <span>{member.first_name || "User"}</span>
-                            {currentTeam?.admin_id === user?.id &&
-                              member.id !== user?.id && (
-                                <button
-                                  type="button"
-                                  onClick={() => setMemberToRemove(member)}
-                                  className="text-[#6b7280] hover:text-red-400 transition-colors ml-1 font-bold"
-                                >
-                                  ×
-                                </button>
-                              )}
+                            {currentTeam?.admin_id === user?.id && member.id !== user?.id && (
+                              <button
+                                type="button"
+                                onClick={() => setMemberToRemove(member)}
+                                className="text-[#6b7280] hover:text-red-400 transition-colors ml-1 font-bold"
+                              >
+                                ×
+                              </button>
+                            )}
                           </div>
                         ))}
                       </div>
@@ -3245,9 +2991,9 @@ export default function TaskManager() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
-                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07"></path>
-                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14"></path>
+                          <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                          <path d="M15.54 8.46a5 5 0 0 1 0 7.07" />
+                          <path d="M19.07 4.93a10 10 0 0 1 0 14.14" />
                         </svg>
                       ) : (
                         <svg
@@ -3261,9 +3007,9 @@ export default function TaskManager() {
                           strokeLinecap="round"
                           strokeLinejoin="round"
                         >
-                          <path d="M11 5L6 9H2v6h4l5 4V5z"></path>
-                          <line x1="23" y1="9" x2="17" y2="15"></line>
-                          <line x1="17" y1="9" x2="23" y2="15"></line>
+                          <path d="M11 5L6 9H2v6h4l5 4V5z" />
+                          <line x1="23" y1="9" x2="17" y2="15" />
+                          <line x1="17" y1="9" x2="23" y2="15" />
                         </svg>
                       )}
                     </div>
@@ -3293,9 +3039,7 @@ export default function TaskManager() {
                       }
                     }}
                     className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors focus:outline-none ${
-                      (profile?.settings?.sound_enabled ?? true)
-                        ? "bg-[#3b82f6]"
-                        : "bg-[#374151]"
+                      (profile?.settings?.sound_enabled ?? true) ? "bg-[#3b82f6]" : "bg-[#374151]"
                     }`}
                   >
                     <span
@@ -3342,10 +3086,7 @@ export default function TaskManager() {
       {/* Edit Task Panel */}
       {editingTask && (
         <div className="fixed inset-0 z-50 flex justify-end">
-          <div
-            className="absolute inset-0 bg-black/50"
-            onClick={handleSaveEditedTask}
-          />
+          <div className="absolute inset-0 bg-black/50" onClick={handleSaveEditedTask} />
 
           <div
             className="relative bg-[#1e2130] h-full shadow-2xl flex flex-col animate-slide-in-right border-l border-[#374151]"
@@ -3403,9 +3144,7 @@ export default function TaskManager() {
                 <input
                   type="text"
                   value={editingTask.title}
-                  onChange={(e) =>
-                    setEditingTask({ ...editingTask, title: e.target.value })
-                  }
+                  onChange={(e) => setEditingTask({ ...editingTask, title: e.target.value })}
                   className="w-full bg-[#0f1117] border border-[#374151] rounded-lg px-4 py-3 focus:outline-none focus:border-[#3b82f6]"
                 />
               </div>
@@ -3417,10 +3156,7 @@ export default function TaskManager() {
                     onClick={() => setShowEditDatePicker(!showEditDatePicker)}
                     className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
                       editingTask.due_date
-                        ? isPastDateStr(
-                            editingTask.due_date,
-                            getUserTz(profile),
-                          )
+                        ? isPastDateStr(editingTask.due_date, getUserTz(profile))
                           ? "text-red-500 border-red-500/30 bg-red-500/5"
                           : "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
                         : "text-[#6b7280] hover:text-white hover:bg-[#374151]"
@@ -3443,10 +3179,7 @@ export default function TaskManager() {
                       <line x1="3" y1="10" x2="21" y2="10" />
                     </svg>
                     {editingTask.due_date
-                      ? formatDateShortStr(
-                          editingTask.due_date,
-                          getUserTz(profile),
-                        )
+                      ? formatDateShortStr(editingTask.due_date, getUserTz(profile))
                       : "No Date"}
                   </button>
 
@@ -3462,10 +3195,7 @@ export default function TaskManager() {
                             onClick={() => {
                               setEditingTask({
                                 ...editingTask,
-                                due_date: getDateStrWithOffset(
-                                  getUserTz(profile),
-                                  0,
-                                ),
+                                due_date: getDateStrWithOffset(getUserTz(profile), 0),
                               });
                               setShowEditDatePicker(false);
                             }}
@@ -3477,10 +3207,7 @@ export default function TaskManager() {
                             onClick={() => {
                               setEditingTask({
                                 ...editingTask,
-                                due_date: getDateStrWithOffset(
-                                  getUserTz(profile),
-                                  1,
-                                ),
+                                due_date: getDateStrWithOffset(getUserTz(profile), 1),
                               });
                               setShowEditDatePicker(false);
                             }}
@@ -3512,9 +3239,7 @@ export default function TaskManager() {
                 {/* Priority Selector */}
                 <div className="relative">
                   <button
-                    onClick={() =>
-                      setShowEditPriorityMenu(!showEditPriorityMenu)
-                    }
+                    onClick={() => setShowEditPriorityMenu(!showEditPriorityMenu)}
                     className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
                       editingTask.priority === 5
                         ? "text-red-500 border-red-500/30 bg-red-500/5"
@@ -3530,9 +3255,7 @@ export default function TaskManager() {
                       width="14"
                       height="14"
                       viewBox="0 0 24 24"
-                      fill={
-                        editingTask.priority === 0 ? "none" : "currentColor"
-                      }
+                      fill={editingTask.priority === 0 ? "none" : "currentColor"}
                       stroke="currentColor"
                       strokeWidth="2"
                       strokeLinecap="round"
@@ -3622,9 +3345,7 @@ export default function TaskManager() {
                       <path d="M12 2H2v10l9.29 9.29c.94.94 2.48.94 3.42 0l6.58-6.58c.94-.94.94-2.48 0-3.42L12 2Z" />
                       <path d="M7 7h.01" />
                     </svg>
-                    {editingTask.tags?.length > 0
-                      ? `${editingTask.tags.length} Tags`
-                      : "No Tags"}
+                    {editingTask.tags?.length > 0 ? `${editingTask.tags.length} Tags` : "No Tags"}
                   </button>
 
                   {showEditTagMenu && (
@@ -3665,7 +3386,7 @@ export default function TaskManager() {
                         <div className="flex flex-wrap gap-1">
                           {editingTask.tags?.map((tag, i) => (
                             <span
-                              key={i}
+                              key={tag}
                               className="text-[10px] px-1.5 py-0.5 rounded bg-[#374151] text-[#9ca3af] flex items-center gap-1"
                             >
                               {tag}
@@ -3698,15 +3419,12 @@ export default function TaskManager() {
                   (() => {
                     const isSharedProject =
                       editingTask.project_id &&
-                      projects.find((p) => p.id === editingTask.project_id)
-                        ?.team_id;
+                      projects.find((p) => p.id === editingTask.project_id)?.team_id;
                     return isSharedProject;
                   })() && (
                     <div className="relative">
                       <button
-                        onClick={() =>
-                          setShowEditAssigneeMenu(!showEditAssigneeMenu)
-                        }
+                        onClick={() => setShowEditAssigneeMenu(!showEditAssigneeMenu)}
                         className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
                           editingTask.assigned_to
                             ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
@@ -3728,9 +3446,8 @@ export default function TaskManager() {
                           <circle cx="12" cy="7" r="4" />
                         </svg>
                         {editingTask.assigned_to
-                          ? teamMembers.find(
-                              (m) => m.id === editingTask.assigned_to,
-                            )?.first_name || "Assigned"
+                          ? teamMembers.find((m) => m.id === editingTask.assigned_to)?.first_name ||
+                            "Assigned"
                           : "Unassigned"}
                       </button>
 
@@ -3769,9 +3486,7 @@ export default function TaskManager() {
                                 className="w-full px-4 py-2 text-left text-sm hover:bg-[#374151] flex items-center gap-2"
                               >
                                 <div className="w-5 h-5 rounded-full bg-[#3b82f6] flex items-center justify-center text-[10px] text-white">
-                                  {(
-                                    member.first_name?.[0] || "U"
-                                  ).toUpperCase()}
+                                  {(member.first_name?.[0] || "U").toUpperCase()}
                                 </div>
                                 {member.first_name} {member.last_name}
                               </button>
@@ -3785,9 +3500,7 @@ export default function TaskManager() {
                 {/* Project Selector */}
                 <div className="relative">
                   <button
-                    onClick={() =>
-                      setShowEditTaskProjectMenu(!showEditTaskProjectMenu)
-                    }
+                    onClick={() => setShowEditTaskProjectMenu(!showEditTaskProjectMenu)}
                     className={`transition-colors flex items-center gap-2 px-3 py-1.5 rounded-md border border-[#374151] text-xs font-medium ${
                       editingTask.project_id
                         ? "text-[#3b82f6] border-[#3b82f6]/30 bg-[#3b82f6]/5"
@@ -3808,8 +3521,7 @@ export default function TaskManager() {
                       <path d="M4 20h16a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.93a2 2 0 0 1-1.66-.9l-.82-1.2A2 2 0 0 0 7.93 3H4a2 2 0 0 0-2 2v13c0 1.1.9 2 2 2Z" />
                     </svg>
                     {editingTask.project_id
-                      ? projects.find((p) => p.id === editingTask.project_id)
-                          ?.name
+                      ? projects.find((p) => p.id === editingTask.project_id)?.name
                       : "Inbox"}
                   </button>
 
@@ -3873,9 +3585,7 @@ export default function TaskManager() {
               {/* Sub-task Section */}
               {getTaskDepth(editingTask) < 2 && (
                 <div>
-                  <label className="text-sm text-[#6b7280] block mb-2">
-                    SUB-TASKS
-                  </label>
+                  <label className="text-sm text-[#6b7280] block mb-2">SUB-TASKS</label>
                   <button
                     onClick={() => handleAddSubtask(editingTask.id)}
                     className="w-full flex items-center gap-2 px-4 py-2 bg-[#0f1117] border border-[#374151] hover:border-[#3b82f6] rounded-lg text-xs text-[#6b7280] hover:text-[#3b82f6] transition-all"
@@ -3887,9 +3597,7 @@ export default function TaskManager() {
               )}
 
               <div>
-                <label className="block text-sm text-[#6b7280] mb-2">
-                  DESCRIPTION
-                </label>
+                <label className="block text-sm text-[#6b7280] mb-2">DESCRIPTION</label>
 
                 <div className="relative group">
                   {/* TipTap Editor */}
@@ -3902,62 +3610,44 @@ export default function TaskManager() {
                     {editor && (
                       <>
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleBold().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleBold().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("bold") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           B
                         </button>
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleItalic().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleItalic().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("italic") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           I
                         </button>
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleStrike().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleStrike().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("strike") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           S
                         </button>
                         <div className="w-[1px] h-4 bg-[#374151] mx-1" />
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleHighlight().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleHighlight().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("highlight") ? "bg-yellow-500/30 text-yellow-500" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           🖍️
                         </button>
                         <button
-                          onClick={() =>
-                            editor
-                              .chain()
-                              .focus()
-                              .toggleHeading({ level: 3 })
-                              .run()
-                          }
+                          onClick={() => editor.chain().focus().toggleHeading({ level: 3 }).run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("heading", { level: 3 }) ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           H
                         </button>
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleBulletList().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleBulletList().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("bulletList") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           •
                         </button>
                         <button
-                          onClick={() =>
-                            editor.chain().focus().toggleOrderedList().run()
-                          }
+                          onClick={() => editor.chain().focus().toggleOrderedList().run()}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("orderedList") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
                         >
                           1.
@@ -3966,11 +3656,7 @@ export default function TaskManager() {
                           onClick={() => {
                             const url = prompt("Enter URL:");
                             if (url) {
-                              editor
-                                .chain()
-                                .focus()
-                                .setLink({ href: url })
-                                .run();
+                              editor.chain().focus().setLink({ href: url }).run();
                             }
                           }}
                           className={`w-8 h-8 flex items-center justify-center text-xs rounded-full transition-colors ${editor.isActive("link") ? "bg-[#3b82f6] text-white" : "hover:bg-[#374151] text-[#6b7280]"}`}
@@ -4009,10 +3695,7 @@ export default function TaskManager() {
             <h3 className="text-lg font-bold text-white mb-2">Add Member</h3>
             <p className="text-sm text-[#6b7280] mb-4">
               Enter the email address of the person you want to add to{" "}
-              <span className="text-white font-medium">
-                {currentTeam?.name}
-              </span>
-              .
+              <span className="text-white font-medium">{currentTeam?.name}</span>.
             </p>
             <form onSubmit={handleAddMemberByEmail} className="space-y-4">
               <input
@@ -4052,16 +3735,11 @@ export default function TaskManager() {
       {memberToRemove && (
         <div className="fixed inset-0 z-[200] flex items-center justify-center p-4 bg-black/80 backdrop-blur-sm">
           <div className="bg-[#1e2130] border border-[#374151] rounded-xl p-6 max-w-sm w-full shadow-2xl">
-            <h3 className="text-lg font-bold text-white mb-2">
-              Remove Member?
-            </h3>
+            <h3 className="text-lg font-bold text-white mb-2">Remove Member?</h3>
             <p className="text-sm text-[#6b7280] mb-6">
               Are you sure you want to remove{" "}
-              <span className="text-white font-medium">
-                {memberToRemove.first_name}
-              </span>{" "}
-              from the team? Any tasks currently assigned to them will be
-              reassigned to you.
+              <span className="text-white font-medium">{memberToRemove.first_name}</span> from the
+              team? Any tasks currently assigned to them will be reassigned to you.
             </p>
             <div className="flex gap-3">
               <button
